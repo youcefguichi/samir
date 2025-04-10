@@ -1,60 +1,57 @@
 package main
 
 import (
-	"bufio"
-	"crypto/tls"
-	"fmt"
-	"log"
-	"net"
+    // "fmt"
+    // "io"
+    "net/http"
+    "log"
 )
 
+func HelloServer(w http.ResponseWriter, req *http.Request) {
+    backendURL := "http://localhost:8080" // Replace with your backend server URL
+
+    // Create a new request to forward to the backend
+    proxyReq, err := http.NewRequest(req.Method, backendURL+req.URL.Path, req.Body)
+    if err != nil {
+        http.Error(w, "Failed to create request", http.StatusInternalServerError)
+        return
+    }
+
+    // Copy headers from the original request
+    for key, values := range req.Header {
+        for _, value := range values {
+            proxyReq.Header.Add(key, value)
+        }
+    }
+
+    // Perform the request to the backend
+    client := &http.Client{}
+    resp, err := client.Do(proxyReq)
+    if err != nil {
+        http.Error(w, "Failed to reach backend server", http.StatusBadGateway)
+        return
+    }
+    defer resp.Body.Close()
+
+    // Copy the response from the backend to the client
+    for key, values := range resp.Header {
+        for _, value := range values {
+            w.Header().Add(key, value)
+        }
+    }
+    w.WriteHeader(resp.StatusCode)
+    _, err = w.Write([]byte{})
+    if err != nil {
+        log.Println("Error writing response:", err)
+    }
+}
+
 func main() {
-    log.SetFlags(log.Lshortfile)
-
-    cer, err := tls.LoadX509KeyPair("server.crt", "server.key")
+    http.HandleFunc("/", HelloServer)
+    err := http.ListenAndServeTLS(":5556", "server.crt", "server.key", nil)
     if err != nil {
-        log.Println(err)
-        return
-    }
-
-    config := &tls.Config{Certificates: []tls.Certificate{cer}}
-    ln, err := tls.Listen("tcp", ":5556", config) 
-    if err != nil {
-        log.Println(err)
-        return
-    }
-    defer ln.Close()
-
-    for {
-        conn, err := ln.Accept()
-        if err != nil {
-            log.Println(err)
-            continue
-        }
-        go handleConnection(conn)
+        log.Fatal("ListenAndServe: ", err)
     }
 }
 
-func handleConnection(conn net.Conn) {
-    defer conn.Close()
-	remoteAddr := conn.RemoteAddr().String()
-    r := bufio.NewReader(conn)
-    for {
-        msg, err := r.ReadString('\n')
-        if err != nil {
-            log.Println(err)
-            return
-        }
-        
-		fmt.Println("--- Layer 7 ---")
-        println(msg)
-		println(remoteAddr)
-        fmt.Println("--- Layer 7 ---")
 
-        n, err := conn.Write([]byte("hello from layer 7\n"))
-        if err != nil {
-            log.Println(n, err)
-            return
-        }
-    }
-}
