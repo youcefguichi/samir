@@ -2,7 +2,7 @@ package main
 
 import (
     // "fmt"
-    // "io"
+    "io"
     "net/http"
     "log"
 )
@@ -39,10 +39,13 @@ func HelloServer(w http.ResponseWriter, req *http.Request) {
             w.Header().Add(key, value)
         }
     }
+    
     w.WriteHeader(resp.StatusCode)
-    _, err = w.Write([]byte{})
+   
+    // Copy the backend response body to the client
+    _, err = io.Copy(w, resp.Body)
     if err != nil {
-        log.Println("Error writing response:", err)
+        log.Println("Error writing response body:", err)
     }
 }
 

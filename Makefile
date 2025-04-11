@@ -13,3 +13,5 @@ client:
 	./client
 	rm client
 	go clean
+backend:
+	python3 -m http.server 8080
