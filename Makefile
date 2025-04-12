@@ -15,3 +15,8 @@ client:
 	go clean
 backend:
 	python3 -m http.server 8080
+main:
+	go build -o main main.go
+	./main
+	rm main
+	go clean
