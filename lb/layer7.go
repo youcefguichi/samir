@@ -1,75 +1,73 @@
 package main
 
 import (
-    "fmt"
-    //"io"
-    "net/http"
-    "log"
+	"fmt"
+	//"io"
+	"log"
+	"net/http"
 )
 
 type lb struct {
-    host string
-    port string // 5556
-    address string // host:port
-    protocol string // http or https
-    certLocation string
-    keyLocation string
-    backendServers []string
+	host           string
+	port           string // 5556
+	address        string // host:port
+	protocol       string // http or https
+	certLocation   string
+	keyLocation    string
+	backendServers []string
+	currentBackend int
 }
 
 func NewLoadBalancer(host, port, protocol, certLocation, keyLocation string, backendServers []string) *lb {
-    return &lb{
-        host: host,
-        port: port,
-        address: fmt.Sprintf("%s:%s", host, port),
-        protocol: protocol,
-        certLocation: certLocation,
-        keyLocation: keyLocation,
-        backendServers: backendServers,
-    }
+	return &lb{
+		host:           host,
+		port:           port,
+		address:        fmt.Sprintf("%s:%s", host, port),
+		protocol:       protocol,
+		certLocation:   certLocation,
+		keyLocation:    keyLocation,
+		backendServers: backendServers,
+		currentBackend: 0,
+	}
 }
 
-
-func (l *lb) start () {
-    // start the load balancer
-    log.Printf("Load balancer is running on %s using protocol %s\n", l.address, l.protocol)
-    err := http.ListenAndServeTLS(l.address, l.certLocation, l.keyLocation, nil)
-    if err != nil {
-        log.Fatal("ListenAndServe: ", err)
-    }
+func (l *lb) start() {
+	// start the load balancer
+	log.Printf("Load balancer is running on %s using protocol %s\n", l.address, l.protocol)
+	err := http.ListenAndServeTLS(l.address, l.certLocation, l.keyLocation, nil)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err)
+	}
 }
 
 // func (l *lb) sendRequestsToBackends () {
-    //    for {
-    //       backend, err := l.getNextBackend("round-robin")
-    //       if err != nil {
-    //           log.Println("Error getting next backend:", err)
-    //           continue
-    //       }
-        
-    //       // if connections succeded, Send request to the backend server
-          
-          
-    //       break
-          
-    //    }
+//    for {
+//       backend, err := l.getNextBackend("round-robin")
+//       if err != nil {
+//           log.Println("Error getting next backend:", err)
+//           continue
+//       }
+
+//       // if connections succeded, Send request to the backend server
+
+//       break
+
+//    }
 // }
 
-// func (l *lb) getNextBackend(algorithm string) (string, error) {
-//     // implement logic to get the next backend server (round-robin)
-//     switch algorithm {
-//         case "round-robin":
-//             // Implement round-robin logic
-//         case "least-connections":
-//             // Implement least-connections logic
-//         case "random":
-//             // Implement random logic
-//         default:
-//             return "", fmt.Errorf("unknown algorithm: %s", algorithm)
-//     }
+func (l *lb) getNextBackend() (string, error) {
+	// implement logic to get the next backend server (round-robin)
 
-// }
+	if l.currentBackend >= len(l.backendServers) {
+		l.currentBackend = 0
+	}
 
+	backend := l.backendServers[l.currentBackend]
+
+	l.currentBackend++
+
+	return backend, nil
+}
 
 // func HelloServer(w http.ResponseWriter, req *http.Request) {
 //     backends := []string{
@@ -80,7 +78,7 @@ func (l *lb) start () {
 //     backendURL := backends[0] // Select the first backend for now// Replace with your backend server URL
 
 //     // Create a new request to forward to the backend
-    
+
 //     proxyReq, err := http.NewRequest(req.Method, backendURL+req.URL.Path, req.Body)
 //     if err != nil {
 //         http.Error(w, "Failed to create request", http.StatusInternalServerError)
@@ -111,7 +109,7 @@ func (l *lb) start () {
 //     }
 
 //     w.WriteHeader(resp.StatusCode)
-   
+
 //     // Copy the backend response body to the client
 //     _, err = io.Copy(w, resp.Body)
 //     if err != nil {
@@ -126,5 +124,3 @@ func (l *lb) start () {
 //         log.Fatal("ListenAndServe: ", err)
 //     }
 // }
-
-
