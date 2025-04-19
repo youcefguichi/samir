@@ -17,3 +17,15 @@ https://gist.github.com/denji/12b3a568f092ab951456
 
 youcef.test.com  > 20.1.1.1 > 10.1.1.1 > check tls and establish a secure connection, check host, if youcef.test.com then forwards the traffic to service-a
 
+
+
+client:
+  email: youcef.guichi.contact@gmail.com
+  
+api://lb-ergegehe-rejkgejugh-eghethge
+appRoles:
+- topic-writer
+- topic-viewer
+Lbserver (CA):
+  CA: youcef.guichi.contact@gmail.com
+  ACL: readOnly

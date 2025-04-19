@@ -1,7 +1,8 @@
 package main
 
+
 func main() {
-	lb := NewLoadBalancer("localhost", "5556", "https", "server.crt", "server.key", []string{"backend1", "backend2"})
+	lb := lb{}
+	lb.LoadConfig("config.yaml")
 	lb.start()
-	lb.getNextBackend()
 }

@@ -1,0 +1,8 @@
+host: localhost:3002
+protocol: http
+port: 80
+cert_location: server.crt
+key_location: server.key
+backend_servers:
+  - http://localhost:8080
+  - http://localhost:8081

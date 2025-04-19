@@ -1,0 +1,41 @@
+loadBalancer:
+    host: localhost
+    protocol: https
+    port: 443
+    sslCert: /path/to/cert.pem
+    sslKey: /path/to/key.pem
+    healthCheck:
+        interval: 30s
+        timeout: 5s
+        healthyThreshold: 3
+        unhealthyThreshold: 3
+backendServers:
+  - http://backend1.example.com
+  - http://backend2.example.com
+waf:
+- allowdIPs:
+    - 10.0.0/8
+    - 192.168.1/24
+    - 172.16.0/12
+- denyIPs:
+    - 192.168.2/24
+    - 10.1.0/16
+    - 172.17.0/16
+- allowdUserAgents:
+    - Mozilla/5.0
+    - Googlebot/2.1
+    - Bingbot/2.0
+- addCSPHeaders:
+    - "default-src 'self';"
+    - "script-src 'self' https://apis.google.com;"
+    - "style-src 'self' 'unsafe-inline';"
+- addSecurityHeaders:
+    - "X-Content-Type-Options: nosniff"
+    - "X-XSS-Protection: 1; mode=block"
+    - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+    - "Content-Security-Policy: default-src 'self';"
+    - "Referrer-Policy: no-referrer"
+    - "Permissions-Policy: geolocation=(self), microphone=()"
+    - "Cross-Origin-Embedder-Policy: require-corp"
+    - "Cross-Origin-Opener-Policy: same-origin"
+    - "Cross-Origin-Resource-Policy: same-origin"
