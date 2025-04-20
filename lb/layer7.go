@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,9 +17,11 @@ type lb struct {
 	currentBackend int
 }
 
-type wafRules struct{
-	allowIPs  []string `yaml:"allow_ips"`
-	denyIPs  []string `yaml:"block_ips"`
+type WAFRule map[string][]string
+
+type wafRules struct {
+	allowIPs []string `yaml:"allowedIPs"`
+	denyIPs  []string `yaml:"denyIPs"`
 }
 
 type config struct {
@@ -30,7 +31,11 @@ type config struct {
 	CertLocation   string   `yaml:"cert_location"`
 	KeyLocation    string   `yaml:"key_location"`
 	BackendServers []string `yaml:"backend_servers"`
-	waf            []wafRules  `yaml:"waf"`
+
+	// waf configs
+	waf      []WAFRule `yaml:"waf"`
+	allowIPs []string  `yaml:"allowed_ips"`
+	//denyIPs  []string `yaml:"denyIPs"`
 }
 
 func (l *lb) LoadConfig(configPath string) {
@@ -40,18 +45,22 @@ func (l *lb) LoadConfig(configPath string) {
 		log.Fatal("Error reading config file: \n", err)
 	}
 
-	var cfg config
+	var cfg map[string]interface{}
 	err = yaml.Unmarshal(data, &cfg)
 	if err != nil {
 		log.Fatal("Error unmarshalling config file: \n", err)
 	}
 
-	l.config = cfg
+	fmt.Println(cfg["waf"])
+
+	// fmt.Println(cfg.waf)
+
+	//l.config = cfg
 }
 
 func (l *lb) start() {
 
-	http.HandleFunc("/", l.RequestsHandler)
+	// http.HandleFunc("/", l.applyWAF(l.RequestsHandler))
 
 	log.Printf("Load balancer is running on %s using protocol %s\n", l.config.Host, l.config.Protocol)
 	err := http.ListenAndServeTLS(l.config.Host, l.config.CertLocation, l.config.KeyLocation, nil)
@@ -59,7 +68,6 @@ func (l *lb) start() {
 		log.Fatal("ListenAndServe: ", err)
 	}
 }
-
 
 // func (l *lb) applyWAF(req *http.Request) bool {
 // 	// Implement WAF logic here
@@ -133,11 +141,10 @@ func (l *lb) getNextBackend() (string, error) {
 	return backend, nil
 }
 
-
 func isIPAllowed(ip string, cdir string) bool {
-	
+
 	// if cidr is a single IP, check if it matches
-	if strings.Contains(cdir, "/"){
+	if strings.Contains(cdir, "/") {
 		_, netIP, err := net.ParseCIDR(cdir)
 		if err != nil {
 			log.Fatal("Error parsing CIDR:", err)
@@ -147,22 +154,37 @@ func isIPAllowed(ip string, cdir string) bool {
 			return false
 		}
 
-	}else{
+	} else {
 		// if cidr is a single IP, check if it matches
 		if ip != cdir {
 			return false
 		}
 	}
-    
+
 	return true
-   
-}
-
-
-func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
-
- 
-
 
 }
- 
+
+// func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
+
+// 	return func(w http.ResponseWriter, req *http.Request) {
+// 		// Check if the request IP is allowed
+// 		ip, _, err := net.SplitHostPort(req.RemoteAddr)
+// 		if err != nil {
+// 			log.Println("Error getting client IP:", err)
+// 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 			return
+// 		}
+
+// 		fmt.Println(l.config.waf[0].allowIPs)
+// 		for _, rule := range l.config.waf {
+// 			if !isIPAllowed(ip, rule.allowIPs[0]) {
+// 				http.Error(w, "Forbidden", http.StatusForbidden)
+// 				return
+// 			}
+// 		}
+
+// 		handler(w, req)
+// 	}
+
+// }
