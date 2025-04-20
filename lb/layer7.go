@@ -4,15 +4,23 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"strings"
+
+	
 	"gopkg.in/yaml.v3"
 )
 
-
 type lb struct {
-   config config
-   currentBackend int
+	config         config
+	currentBackend int
+}
+
+type wafRules struct{
+	allowIPs  []string `yaml:"allow_ips"`
+	denyIPs  []string `yaml:"block_ips"`
 }
 
 type config struct {
@@ -22,10 +30,10 @@ type config struct {
 	CertLocation   string   `yaml:"cert_location"`
 	KeyLocation    string   `yaml:"key_location"`
 	BackendServers []string `yaml:"backend_servers"`
+	waf            []wafRules  `yaml:"waf"`
 }
 
-
-func (l *lb) LoadConfig(configPath string){
+func (l *lb) LoadConfig(configPath string) {
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -42,18 +50,26 @@ func (l *lb) LoadConfig(configPath string){
 }
 
 func (l *lb) start() {
+
 	http.HandleFunc("/", l.RequestsHandler)
-    
-	// lodd the configuration file
-	// start the load balancer
+
 	log.Printf("Load balancer is running on %s using protocol %s\n", l.config.Host, l.config.Protocol)
 	err := http.ListenAndServeTLS(l.config.Host, l.config.CertLocation, l.config.KeyLocation, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
-
 }
 
+
+// func (l *lb) applyWAF(req *http.Request) bool {
+// 	// Implement WAF logic here
+// 	// For example, check if the request IP is in the allow or deny list
+// 	// Return true if the request is allowed, false if blocked
+
+// 	reqIP := req.RemoteAddr
+
+// 	return true
+// }
 
 func (l *lb) RequestsHandler(w http.ResponseWriter, req *http.Request) {
 	for {
@@ -116,3 +132,37 @@ func (l *lb) getNextBackend() (string, error) {
 
 	return backend, nil
 }
+
+
+func isIPAllowed(ip string, cdir string) bool {
+	
+	// if cidr is a single IP, check if it matches
+	if strings.Contains(cdir, "/"){
+		_, netIP, err := net.ParseCIDR(cdir)
+		if err != nil {
+			log.Fatal("Error parsing CIDR:", err)
+		}
+
+		if !netIP.Contains(net.ParseIP(ip)) {
+			return false
+		}
+
+	}else{
+		// if cidr is a single IP, check if it matches
+		if ip != cdir {
+			return false
+		}
+	}
+    
+	return true
+   
+}
+
+
+func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
+
+ 
+
+
+}
+ 

@@ -6,3 +6,12 @@ key_location: server.key
 backend_servers:
   - http://localhost:8080
   - http://localhost:8081
+waf:
+- allowdIPs:
+    - 10.0.0/8
+    - 192.168.1/24
+    - 172.16.0/12
+- denyIPs:
+    - 192.168.2/24
+    - 10.1.0/16
+    - 172.17.0/16
