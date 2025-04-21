@@ -1,5 +1,7 @@
 package main
 
+//import "fmt"
+
 // import (
 // 	"fmt"
 // 	"net"
@@ -9,5 +11,5 @@ package main
 func main() {
 	lb := lb{}
 	lb.LoadConfig("config.yaml")
-	// lb.start()
+	lb.start()
 }

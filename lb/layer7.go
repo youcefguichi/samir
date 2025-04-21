@@ -2,14 +2,13 @@ package main
 
 import (
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 type lb struct {
@@ -17,25 +16,19 @@ type lb struct {
 	currentBackend int
 }
 
-type WAFRule map[string][]string
-
-type wafRules struct {
-	allowIPs []string `yaml:"allowedIPs"`
-	denyIPs  []string `yaml:"denyIPs"`
+type WafRule struct {
+	AllowIPs []string `yaml:"allowedIPs"`
+	DenyIPs  []string `yaml:"denyIPs"`
 }
 
 type config struct {
-	Host           string   `yaml:"host"`
-	Port           string   `yaml:"port"`
-	Protocol       string   `yaml:"protocol"`
-	CertLocation   string   `yaml:"cert_location"`
-	KeyLocation    string   `yaml:"key_location"`
-	BackendServers []string `yaml:"backend_servers"`
-
-	// waf configs
-	waf      []WAFRule `yaml:"waf"`
-	allowIPs []string  `yaml:"allowed_ips"`
-	//denyIPs  []string `yaml:"denyIPs"`
+	Host           string    `yaml:"host"`
+	Port           string    `yaml:"port"`
+	Protocol       string    `yaml:"protocol"`
+	CertLocation   string    `yaml:"cert_location"`
+	KeyLocation    string    `yaml:"key_location"`
+	BackendServers []string  `yaml:"backend_servers"`
+	Waf            []WafRule `yaml:"waf"`
 }
 
 func (l *lb) LoadConfig(configPath string) {
@@ -45,39 +38,26 @@ func (l *lb) LoadConfig(configPath string) {
 		log.Fatal("Error reading config file: \n", err)
 	}
 
-	var cfg map[string]interface{}
+	var cfg config
+
 	err = yaml.Unmarshal(data, &cfg)
 	if err != nil {
 		log.Fatal("Error unmarshalling config file: \n", err)
 	}
 
-	fmt.Println(cfg["waf"])
-
-	// fmt.Println(cfg.waf)
-
-	//l.config = cfg
+	l.config = cfg
 }
 
 func (l *lb) start() {
 
-	// http.HandleFunc("/", l.applyWAF(l.RequestsHandler))
-
+	http.HandleFunc("/", l.applyWAF(l.RequestsHandler))
+    fmt.Print(l.config)
 	log.Printf("Load balancer is running on %s using protocol %s\n", l.config.Host, l.config.Protocol)
 	err := http.ListenAndServeTLS(l.config.Host, l.config.CertLocation, l.config.KeyLocation, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
 }
-
-// func (l *lb) applyWAF(req *http.Request) bool {
-// 	// Implement WAF logic here
-// 	// For example, check if the request IP is in the allow or deny list
-// 	// Return true if the request is allowed, false if blocked
-
-// 	reqIP := req.RemoteAddr
-
-// 	return true
-// }
 
 func (l *lb) RequestsHandler(w http.ResponseWriter, req *http.Request) {
 	for {
@@ -165,26 +145,25 @@ func isIPAllowed(ip string, cdir string) bool {
 
 }
 
-// func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
+func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
-// 	return func(w http.ResponseWriter, req *http.Request) {
-// 		// Check if the request IP is allowed
-// 		ip, _, err := net.SplitHostPort(req.RemoteAddr)
-// 		if err != nil {
-// 			log.Println("Error getting client IP:", err)
-// 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-// 			return
-// 		}
+	return func(w http.ResponseWriter, req *http.Request) {
+		// Check if the request IP is allowed
+		ip, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err != nil {
+			log.Println("Error getting client IP:", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 
-// 		fmt.Println(l.config.waf[0].allowIPs)
-// 		for _, rule := range l.config.waf {
-// 			if !isIPAllowed(ip, rule.allowIPs[0]) {
-// 				http.Error(w, "Forbidden", http.StatusForbidden)
-// 				return
-// 			}
-// 		}
+		for _, rule := range l.config.Waf {
+			if !isIPAllowed(ip, rule.AllowIPs[0]) {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+		}
 
-// 		handler(w, req)
-// 	}
+		handler(w, req)
+	}
 
-// }
+}
