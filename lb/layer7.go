@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type lb struct {
@@ -18,7 +19,6 @@ type lb struct {
 
 type WafRule struct {
 	AllowIPs []string `yaml:"allowedIPs"`
-	DenyIPs  []string `yaml:"denyIPs"`
 }
 
 type config struct {
@@ -51,7 +51,6 @@ func (l *lb) LoadConfig(configPath string) {
 func (l *lb) start() {
 
 	http.HandleFunc("/", l.applyWAF(l.RequestsHandler))
-    fmt.Print(l.config)
 	log.Printf("Load balancer is running on %s using protocol %s\n", l.config.Host, l.config.Protocol)
 	err := http.ListenAndServeTLS(l.config.Host, l.config.CertLocation, l.config.KeyLocation, nil)
 	if err != nil {
@@ -95,6 +94,7 @@ func (l *lb) RequestsHandler(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 
+		fmt.Println("I am here")
 		w.WriteHeader(resp.StatusCode)
 
 		// Copy the backend response body to the client
@@ -164,6 +164,7 @@ func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 		}
 
 		handler(w, req)
+
 	}
 
 }
