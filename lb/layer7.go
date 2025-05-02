@@ -17,18 +17,21 @@ type lb struct {
 	currentBackend int
 }
 
-type WafRule struct {
-	AllowIPs []string `yaml:"allowedIPs"`
+type Waf struct {
+	AllowedIPs                []string            `yaml:"allowedIPs"`
+	AllowedPorts              []string            `yaml:"allowedPorts"`
+	AdditionalRequestHeaders  []map[string]string `yaml:"additionalRequestHeaders"`
+	AdditionalResponseHeaders []map[string]string `yaml:"additionalResponseHeaders"`
 }
 
 type config struct {
-	Host           string    `yaml:"host"`
-	Port           string    `yaml:"port"`
-	Protocol       string    `yaml:"protocol"`
-	CertLocation   string    `yaml:"cert_location"`
-	KeyLocation    string    `yaml:"key_location"`
-	BackendServers []string  `yaml:"backend_servers"`
-	Waf            []WafRule `yaml:"waf"`
+	Host           string   `yaml:"host"`
+	Port           string   `yaml:"port"`
+	Protocol       string   `yaml:"protocol"`
+	CertLocation   string   `yaml:"cert_location"`
+	KeyLocation    string   `yaml:"key_location"`
+	BackendServers []string `yaml:"backend_servers"`
+	Waf            Waf      `yaml:"waf"`
 }
 
 func (l *lb) LoadConfig(configPath string) {
@@ -44,6 +47,8 @@ func (l *lb) LoadConfig(configPath string) {
 	if err != nil {
 		log.Fatal("Error unmarshalling config file: \n", err)
 	}
+
+	fmt.Println(cfg)
 
 	l.config = cfg
 }
@@ -121,47 +126,92 @@ func (l *lb) getNextBackend() (string, error) {
 	return backend, nil
 }
 
-func isIPAllowed(ip string, cdir string) bool {
+func isIPAllowed(ip string, cdir []string) bool {
+	found := false
+	for _, cdir := range cdir {
 
-	// if cidr is a single IP, check if it matches
-	if strings.Contains(cdir, "/") {
+		if !strings.Contains(cdir, "/") && cdir == ip {
+			found = true
+			break
+		}
+
 		_, netIP, err := net.ParseCIDR(cdir)
+
 		if err != nil {
 			log.Fatal("Error parsing CIDR:", err)
 		}
 
-		if !netIP.Contains(net.ParseIP(ip)) {
-			return false
-		}
-
-	} else {
-		// if cidr is a single IP, check if it matches
-		if ip != cdir {
-			return false
+		if netIP.Contains(net.ParseIP(ip)) {
+			found = true
+			break
 		}
 	}
 
-	return true
-
+	return found
 }
+
+func isPortAllowed(port string, ports []string) bool {
+	found := false
+	for _, p := range ports {
+
+		if p == port {
+			found = true
+			break
+		}
+
+		if p == "*" {
+			found = true
+			break
+		}
+	}
+	return found
+}
+
+func addHeadersToRequest(req *http.Request, headers []map[string]string) {
+	for _, header := range headers {
+		for key, value := range header {
+			req.Header.Add(key, value)
+		}
+	}
+}
+
+func addHeadersToResponse(w http.ResponseWriter, headers []map[string]string) {
+	for _, header := range headers {
+		for key, value := range header {
+			w.Header().Add(key, value)
+		}
+	}
+}
+
+// if cidr is a single IP, check if it matches
 
 func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Check if the request IP is allowed
-		ip, _, err := net.SplitHostPort(req.RemoteAddr)
+
+		ip, port, err := net.SplitHostPort(req.RemoteAddr)
+
 		if err != nil {
 			log.Println("Error getting client IP:", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
 
-		for _, rule := range l.config.Waf {
-			if !isIPAllowed(ip, rule.AllowIPs[0]) {
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
+		// WAF check
+
+		if !isPortAllowed(port, l.config.Waf.AllowedPorts) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
 		}
+
+		if !isIPAllowed(ip, l.config.Waf.AllowedIPs) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		addHeadersToRequest(req, l.config.Waf.AdditionalRequestHeaders)
+		addHeadersToResponse(w, l.config.Waf.AdditionalResponseHeaders)
 
 		handler(w, req)
 

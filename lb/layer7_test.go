@@ -68,3 +68,57 @@ func TestGetNextBackend(t *testing.T) {
 	}
 
 }
+
+func TestIsIPAllowed(t *testing.T) {
+	tests := []struct {
+		name     string
+		ip       string
+		allowed  []string
+		expected bool
+	}{
+		{
+			name:     "one CIDR",
+			ip:       "10.10.1.1",
+			allowed:  []string{"10.10.1.0/24"},
+			expected: true,
+		},
+		{
+			name:     "match with single IP",
+			ip:       "10.10.2.1",
+			allowed:  []string{"10.10.2.1"},
+			expected: true,
+		},
+		{
+			name:     "match with single ip written in CIDR format",
+			ip:       "10.10.1.1",
+			allowed:  []string{"10.10.1.1/32"},
+			expected: true,
+		},
+		{
+			name:     "deny ip not in CIDR",
+			ip:       "10.10.2.1",
+			allowed:  []string{"10.10.1.0/24"},
+			expected: false,
+		},
+		{
+			name:     "deny ip not in CIDR",
+			ip:       "10.10.2.1",
+			allowed:  []string{"10.10.1.1/24", "10.10.3.0/24"},
+			expected: false,
+		},
+		{
+			name:     "allow ip multiple CIDR",
+			ip:       "10.10.2.1",
+			allowed:  []string{"10.10.1.1/24", "10.10.2.0/24"},
+			expected: true,
+		},
+	}
+
+	for _, test := range tests {
+		result := isIPAllowed(test.ip, test.allowed)
+		if result != test.expected {
+			t.Errorf("Test %s failed: expected %v, got %v", test.name, test.expected, result)
+		}
+	}
+
+}
