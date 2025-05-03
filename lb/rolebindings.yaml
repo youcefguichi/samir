@@ -1,0 +1,11 @@
+role-bindings:
+  - name: bindroletoadmin
+    role: admin
+    users:
+      - youcef
+      - james
+  - name: test
+    role: developer
+    users:
+      - youcef
+      - james

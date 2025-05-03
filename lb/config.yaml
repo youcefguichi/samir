@@ -16,8 +16,8 @@ waf:
       - 80
       - 443
       - "*"
-      #- 127.0.0.1
   additionalRequestHeaders:
       - X-Forwarded-For: ""
   additionalResponseHeaders:
       - wallet-hash: "dGVzdFZhbHVlMTIzwiefhw02-urWREFWrg"
+      - X-Frame-Options: "DENY"

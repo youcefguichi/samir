@@ -61,6 +61,10 @@ func (l *lb) start() {
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
+
+	// ask client to present client cert
+	// if the client does not present a cert, return 403
+	// if authenticaions succedded do the authorization
 }
 
 func (l *lb) RequestsHandler(w http.ResponseWriter, req *http.Request) {
@@ -183,13 +187,11 @@ func addHeadersToResponse(w http.ResponseWriter, headers []map[string]string) {
 	}
 }
 
-// if cidr is a single IP, check if it matches
 
 func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, req *http.Request) {
-		// Check if the request IP is allowed
-
+		
 		ip, port, err := net.SplitHostPort(req.RemoteAddr)
 
 		if err != nil {
@@ -210,6 +212,8 @@ func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
+		// modify request and response headers
+
 		addHeadersToRequest(req, l.config.Waf.AdditionalRequestHeaders)
 		addHeadersToResponse(w, l.config.Waf.AdditionalResponseHeaders)
 
@@ -217,4 +221,9 @@ func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
 	}
 
+}
+
+
+func authenticateUser(){
+	// extract client cert
 }

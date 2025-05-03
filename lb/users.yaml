@@ -1,0 +1,7 @@
+users:
+  - name: youcef
+    authenticaion:
+      type: mtls
+  - name: nounou
+    authenticaion:
+      type: mtls

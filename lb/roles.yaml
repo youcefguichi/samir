@@ -1,0 +1,11 @@
+roles:
+  - name: admin
+    permissions:
+      - name: manage_users
+        allowed-endpoints:
+          - path: api/*
+            actions:
+              - GET
+              - POST
+              - PUT
+              - DELETE
