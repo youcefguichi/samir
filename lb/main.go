@@ -9,7 +9,7 @@ package main
 // )
 
 func main() {
-	lb := lb{}
-	lb.LoadConfig("config.yaml")
-	lb.start()
+	proxy := lb{}
+	proxy.LoadConfig("config.yaml")
+	proxy.start()
 }

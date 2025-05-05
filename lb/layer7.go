@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"log"
@@ -28,6 +30,7 @@ type config struct {
 	Host           string   `yaml:"host"`
 	Port           string   `yaml:"port"`
 	Protocol       string   `yaml:"protocol"`
+	CaLocation     string   `yaml:"ca_location"`
 	CertLocation   string   `yaml:"cert_location"`
 	KeyLocation    string   `yaml:"key_location"`
 	BackendServers []string `yaml:"backend_servers"`
@@ -57,7 +60,23 @@ func (l *lb) start() {
 
 	http.HandleFunc("/", l.applyWAF(l.RequestsHandler))
 	log.Printf("Load balancer is running on %s using protocol %s\n", l.config.Host, l.config.Protocol)
-	err := http.ListenAndServeTLS(l.config.Host, l.config.CertLocation, l.config.KeyLocation, nil)
+
+	caCert, _ := os.ReadFile(l.config.CaLocation)
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		ClientCAs:  caCertPool,
+		ClientAuth: tls.RequireAndVerifyClientCert,
+	}
+
+	server := &http.Server{
+		Addr:      l.config.Host,
+		TLSConfig: tlsConfig,
+	}
+
+	err := server.ListenAndServeTLS(l.config.CertLocation, l.config.KeyLocation)
+
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
@@ -187,11 +206,10 @@ func addHeadersToResponse(w http.ResponseWriter, headers []map[string]string) {
 	}
 }
 
-
 func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, req *http.Request) {
-		
+
 		ip, port, err := net.SplitHostPort(req.RemoteAddr)
 
 		if err != nil {
@@ -223,7 +241,6 @@ func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
 }
 
-
-func authenticateUser(){
+func authenticateUser() {
 	// extract client cert
 }
