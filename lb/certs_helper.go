@@ -18,19 +18,23 @@ type certManager struct {
 	caKey  *ecdsa.PrivateKey
 }
 
-// CreateCA generates a Certificate Authority (CA) certificate and private key.
+type Users struct {
+
+}
+
+
 func (cm *certManager) CreateCA(caCertPath, caKeyPath string) {
-	// Generate private key for the CA
+
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
 	if err != nil {
 		log.Fatalf("Failed to generate CA private key: %v", err)
 	}
 
-	// Create the CA certificate template
 	caTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
-			Organization: []string{"My CA"},
+			Organization: []string{"YOUCEF.G"},
 		},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().AddDate(10, 0, 0), // Valid for 10 years
@@ -39,53 +43,54 @@ func (cm *certManager) CreateCA(caCertPath, caKeyPath string) {
 		IsCA:                  true,
 	}
 
-	// Self-sign the CA certificate
-	caCertBytes, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	signedCA, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
 	if err != nil {
 		log.Fatalf("Failed to create CA certificate: %v", err)
 	}
 
-	// Save the CA certificate to a file
 	caCertFile, err := os.Create(caCertPath)
+
 	if err != nil {
 		log.Fatalf("Failed to create CA certificate file: %v", err)
 	}
-	defer caCertFile.Close()
-	pem.Encode(caCertFile, &pem.Block{Type: "CERTIFICATE", Bytes: caCertBytes})
 
-	// Save the CA private key to a file
+	pem.Encode(caCertFile, &pem.Block{Type: "CERTIFICATE", Bytes: signedCA})
+	defer caCertFile.Close()
+
 	caKeyFile, err := os.Create(caKeyPath)
+
 	if err != nil {
 		log.Fatalf("Failed to create CA key file: %v", err)
 	}
-	defer caKeyFile.Close()
+
 	caKeyBytes, err := x509.MarshalECPrivateKey(caKey)
 	if err != nil {
 		log.Fatalf("Failed to marshal CA private key: %v", err)
 	}
-	pem.Encode(caKeyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: caKeyBytes})
 
-	// Store CA in the struct
-	cm.caCert, err = x509.ParseCertificate(caCertBytes)
+	pem.Encode(caKeyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: caKeyBytes})
+	defer caKeyFile.Close()
+
+	cm.caCert, err = x509.ParseCertificate(signedCA)
+
 	if err != nil {
 		log.Fatalf("Failed to parse CA certificate: %v", err)
 	}
+
 	cm.caKey = caKey
 }
 
-// CreateClientCert generates a client certificate signed by the CA.
 func (cm *certManager) CreateClientCert(clientCertPath, clientKeyPath string) {
+
 	if cm.caCert == nil || cm.caKey == nil {
 		log.Fatal("CA certificate and key must be created first")
 	}
 
-	// Generate private key for the client
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Fatalf("Failed to generate client private key: %v", err)
 	}
 
-	// Create the client certificate template
 	clientTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
 		Subject: pkix.Name{
@@ -97,30 +102,32 @@ func (cm *certManager) CreateClientCert(clientCertPath, clientKeyPath string) {
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 
-	// Sign the client certificate with the CA
-	clientCertBytes, err := x509.CreateCertificate(rand.Reader, clientTemplate, cm.caCert, &clientKey.PublicKey, cm.caKey)
+	signedClientCert, err := x509.CreateCertificate(rand.Reader, clientTemplate, cm.caCert, &clientKey.PublicKey, cm.caKey)
 	if err != nil {
 		log.Fatalf("Failed to create client certificate: %v", err)
 	}
 
-	// Save the client certificate to a file
 	clientCertFile, err := os.Create(clientCertPath)
 	if err != nil {
 		log.Fatalf("Failed to create client certificate file: %v", err)
 	}
-	defer clientCertFile.Close()
-	pem.Encode(clientCertFile, &pem.Block{Type: "CERTIFICATE", Bytes: clientCertBytes})
 
-	// Save the client private key to a file
+	pem.Encode(clientCertFile, &pem.Block{Type: "CERTIFICATE", Bytes: signedClientCert})
+	defer clientCertFile.Close()
+
 	clientKeyFile, err := os.Create(clientKeyPath)
 	if err != nil {
 		log.Fatalf("Failed to create client key file: %v", err)
 	}
-	defer clientKeyFile.Close()
-	// Save the client private key to a file
+
 	clientKeyBytes, err := x509.MarshalECPrivateKey(clientKey)
 	if err != nil {
 		log.Fatalf("Failed to marshal client private key: %v", err)
 	}
+
 	pem.Encode(clientKeyFile, &pem.Block{Type: "EC PRIVATE KEY", Bytes: clientKeyBytes})
+	defer clientKeyFile.Close()
 }
+
+
+
