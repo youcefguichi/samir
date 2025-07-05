@@ -68,3 +68,7 @@ client -> tcp_proxy -> application load balancer -> backend servers
   ```
   make run client
   ```
+
+### Diagram
+
+![Architecture Diagram](./infra-in-go.png)
