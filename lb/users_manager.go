@@ -15,6 +15,7 @@ func (u *User) LoadUsersConfig(configPath string) string {
 
 func (u *User) CreateUser(name string) {
 	u.certManager.CreateClientCert(name + ".crt", name + ".key")
+	// Add user to users.json
 }
 
 func (u *User) DeleteUser(name string) {
@@ -27,8 +28,9 @@ func (u *User) DeleteUser(name string) {
 
 - create a user
 - delete a user
-- list all users
+- list all users | use metadata.json for this
 - watch for user expiration
+
 
 example structure
 
