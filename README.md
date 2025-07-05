@@ -1,12 +1,12 @@
-# INFRA FOR FUN WITH GOLANG
-### Current services (all services/tools are written from scratch in go)
-Currently the repo have:
+## INFRA FOR FUN WITH GOLANG
+
+Currently the repo have Current services (all services/tools are written from scratch in go):
 - a smiple application loadbalancer with roundrobin and simple waf
 - a simple tcp proxy
 - a simple client with mtls enabled
 - a certs generatore for self signed certs
 ### Use the current services
-#### generate certs for the application load balancer and the clients to enfore mtls
+#### Generate certs for the application load balancer and the clients to enfore mtls
 - Genereate a local CA
 ```
 make generate_ca
