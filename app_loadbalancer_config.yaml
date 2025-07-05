@@ -1,9 +1,9 @@
 host: localhost:3002
 protocol: http
 port: 3002
-ca_location: server.crt
-cert_location: server.crt
-key_location: server.key
+ca_location: certs/ca.crt
+cert_location: certs/server.crt
+key_location: certs/server.key
 backend_servers:
   - http://localhost:8080
   - http://localhost:8081
@@ -17,8 +17,4 @@ waf:
       - 80
       - 443
       - "*"
-  additionalRequestHeaders:
-      - X-Forwarded-For: ""
-  additionalResponseHeaders:
-      - wallet-hash: "dGVzdFZhbHVlMTIzwiefhw02-urWREFWrg"
-      - X-Frame-Options: "DENY"
+

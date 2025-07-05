@@ -9,7 +9,7 @@ import (
 func main() {
 	log.SetFlags(log.Lshortfile)
 
-	// Just a plain TCP listener
+
 	ln, err := net.Listen("tcp", ":5555")
 	if err != nil {
 		log.Fatal(err)
@@ -30,7 +30,7 @@ func main() {
 func forwardConnection(conn net.Conn) {
 	defer conn.Close()
 
-	targetConn, err := net.Dial("tcp", "localhost:5556")
+	targetConn, err := net.Dial("tcp", "localhost:3002")
 	if err != nil {
 		log.Println("Failed to connect to backend:", err)
 		return

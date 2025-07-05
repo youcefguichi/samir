@@ -21,8 +21,6 @@ type lb struct {
 type Waf struct {
 	AllowedIPs                []string            `yaml:"allowedIPs"`
 	AllowedPorts              []string            `yaml:"allowedPorts"`
-	AdditionalRequestHeaders  []map[string]string `yaml:"additionalRequestHeaders"`
-	AdditionalResponseHeaders []map[string]string `yaml:"additionalResponseHeaders"`
 }
 
 type config struct {
@@ -38,7 +36,11 @@ type config struct {
 
 func (l *lb) LoadConfig(configPath string) {
 
-	data, err := os.ReadFile(configPath)
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatal("Error getting working directory: \n", err)
+	}
+	data, err := os.ReadFile(wd + configPath)
 	if err != nil {
 		log.Fatal("Error reading config file: \n", err)
 	}
@@ -189,21 +191,6 @@ func isPortAllowed(port string, ports []string) bool {
 	return found
 }
 
-func addHeadersToRequest(req *http.Request, headers []map[string]string) {
-	for _, header := range headers {
-		for key, value := range header {
-			req.Header.Add(key, value)
-		}
-	}
-}
-
-func addHeadersToResponse(w http.ResponseWriter, headers []map[string]string) {
-	for _, header := range headers {
-		for key, value := range header {
-			w.Header().Add(key, value)
-		}
-	}
-}
 
 func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
@@ -229,17 +216,8 @@ func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// modify request and response headers
-
-		addHeadersToRequest(req, l.config.Waf.AdditionalRequestHeaders)
-		addHeadersToResponse(w, l.config.Waf.AdditionalResponseHeaders)
-
 		handler(w, req)
 
 	}
 
-}
-
-func authenticateUser() {
-	// extract client cert
 }
