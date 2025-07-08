@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,8 +20,8 @@ type lb struct {
 }
 
 type Waf struct {
-	AllowedIPs                []string            `yaml:"allowedIPs"`
-	AllowedPorts              []string            `yaml:"allowedPorts"`
+	AllowedIPs   []string `yaml:"allowedIPs"`
+	AllowedPorts []string `yaml:"allowedPorts"`
 }
 
 type config struct {
@@ -67,8 +68,8 @@ func (l *lb) start() {
 	caCertPool.AppendCertsFromPEM(caCert)
 
 	tlsConfig := &tls.Config{
-		ClientCAs:  caCertPool,
-		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs: caCertPool,
+		//ClientAuth: tls.RequireAndVerifyClientCert,
 	}
 
 	server := &http.Server{
@@ -132,7 +133,6 @@ func (l *lb) RequestsHandler(w http.ResponseWriter, req *http.Request) {
 			log.Println("Error writing response body:", err)
 		}
 
-		break
 	}
 }
 
@@ -190,7 +190,6 @@ func isPortAllowed(port string, ports []string) bool {
 	}
 	return found
 }
-
 
 func (l *lb) applyWAF(handler http.HandlerFunc) http.HandlerFunc {
 
