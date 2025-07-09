@@ -5,11 +5,22 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
+
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	//"math"
 )
+
+type CertResult struct {
+	Endpoint  string
+	NotBefore time.Time
+	NotAfter  time.Time
+	DaysLeft  int
+	Status    string
+	Err       error
+}
 
 func RetreiveCertificateFromPeer(endpoint string, insecureSkip bool) ([]*x509.Certificate, error) {
 
@@ -32,21 +43,54 @@ func expiresIn(cert *x509.Certificate) int {
 
 func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
 
+	var wg sync.WaitGroup
+	resultCh := make(chan CertResult, len(endpoints))
+
 	t := configureCertExpiryReportTable()
 
 	for _, endpoint := range endpoints {
 
-		certs, err := RetreiveCertificateFromPeer(endpoint, insecureskip)
+		wg.Add(1)
 
-		if err != nil {
-			fmt.Println(err)
+		go func(ep string) {
+			defer wg.Done()
+
+			certs, err := RetreiveCertificateFromPeer(ep, insecureskip)
+
+			if err != nil {
+				resultCh <- CertResult{
+					Endpoint: ep,
+					Err:      err,
+				}
+				return
+			}
+
+			for _, cert := range certs {
+
+				daysLeft := expiresIn(cert)
+
+				resultCh <- CertResult{
+					Endpoint:  ep,
+					NotBefore: cert.NotBefore,
+					NotAfter:  cert.NotAfter,
+					DaysLeft:  daysLeft,
+					Status:    certStatus(daysLeft),
+				}
+
+			}
+
+		}(endpoint)
+
+	}
+	wg.Wait()
+	close(resultCh)
+
+	for result := range resultCh {
+		if result.Err != nil {
+			fmt.Printf("X %s — %s\n", result.Endpoint, result.Err)
 			continue
 		}
-
-		for _, cert := range certs {
-			t.AppendRow(table.Row{endpoint, cert.NotBefore, cert.NotAfter, expiresIn(cert), certStatus(expiresIn(cert))})
-		}
-
+		t.AppendRow(table.Row{result.Endpoint, result.NotBefore, result.NotAfter, result.DaysLeft, result.Status})
 	}
 
 	fmt.Println(t.Render())
