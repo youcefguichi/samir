@@ -3,14 +3,16 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
+
 	//"math"
+	//"runtime"
+	context "context"
 )
 
 type CertResult struct {
@@ -22,16 +24,37 @@ type CertResult struct {
 	Err       error
 }
 
-func RetreiveCertificateFromPeer(endpoint string, insecureSkip bool) ([]*x509.Certificate, error) {
+type Response struct {
+	Certificates []*x509.Certificate
+	Err          error
+}
 
-	con, err := tls.Dial("tcp", endpoint, &tls.Config{InsecureSkipVerify: insecureSkip})
-	if err != nil {
-		return nil, errors.New("failed to connect to endpoint: " + endpoint + " " + err.Error())
+func RetreiveCertificateFromPeer(ctx context.Context, endpoint string, insecureSkip bool) (*Response, error) {
+
+	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	defer cancel()
+	resultCh := make(chan Response)
+
+	go func() {
+		con, err := tls.Dial("tcp", endpoint, &tls.Config{InsecureSkipVerify: insecureSkip})
+		// if err != nil {
+		// 	return nil, errors.New("failed to connect to endpoint: " + endpoint + " " + err.Error())
+		// }
+
+		certs := con.ConnectionState().PeerCertificates
+		resultCh <- Response{
+			Certificates: certs,
+			Err:          err,
+		}
+
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case resp := <-resultCh:
+		return &resp, nil
 	}
-
-	certs := con.ConnectionState().PeerCertificates
-
-	return certs, nil
 
 }
 
@@ -55,7 +78,8 @@ func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
 		go func(ep string) {
 			defer wg.Done()
 
-			certs, err := RetreiveCertificateFromPeer(ep, insecureskip)
+			ctx := context.Background()
+			certs, err := RetreiveCertificateFromPeer(ctx, ep, insecureskip)
 
 			if err != nil {
 				resultCh <- CertResult{
@@ -65,9 +89,17 @@ func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
 				return
 			}
 
-			for _, cert := range certs {
+			for _, cert := range certs.Certificates {
 
 				daysLeft := expiresIn(cert)
+
+				if certs.Err != nil {
+					resultCh <- CertResult{
+						Endpoint: ep,
+						Err:      certs.Err,
+					}
+					return
+				}
 
 				resultCh <- CertResult{
 					Endpoint:  ep,
@@ -75,6 +107,7 @@ func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
 					NotAfter:  cert.NotAfter,
 					DaysLeft:  daysLeft,
 					Status:    certStatus(daysLeft),
+					Err:       nil,
 				}
 
 			}
@@ -82,8 +115,11 @@ func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
 		}(endpoint)
 
 	}
-	wg.Wait()
-	close(resultCh)
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
 
 	for result := range resultCh {
 		if result.Err != nil {
