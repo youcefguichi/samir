@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -24,40 +25,45 @@ type CertResult struct {
 	Err       error
 }
 
-type Response struct {
-	Certificates []*x509.Certificate
-	Err          error
+type TlsResponse struct {
+	conn *tls.Conn
+	Err  error
 }
 
-func RetreiveCertificateFromPeer(ctx context.Context, endpoint string, insecureSkip bool) (*Response, error) {
+func DialTlsPeer(ctx context.Context, timeoutDurationSeconds int, endpoint string, insecureSkip bool) TlsResponse {
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	timeout := time.Duration(timeoutDurationSeconds) * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	resultCh := make(chan Response)
+	resultCh := make(chan TlsResponse)
 
 	go func() {
-		con, err := tls.Dial("tcp", endpoint, &tls.Config{InsecureSkipVerify: insecureSkip})
+		conn, err := tls.Dial("tcp", endpoint, &tls.Config{InsecureSkipVerify: insecureSkip})
 		if err != nil {
-			resultCh <- Response{
-				Certificates: nil,
-				Err:          err,
+			resultCh <- TlsResponse{
+				conn: nil,
+				Err:  err,
 			}
 			return
 		}
-		certs := con.ConnectionState().PeerCertificates
-		resultCh <- Response{
-			Certificates: certs,
-			Err:          err,
+
+		resultCh <- TlsResponse{
+			conn: conn,
+			Err:  nil,
 		}
 
 	}()
 
 	select {
+
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return TlsResponse{
+			conn: nil,
+			Err:  errors.New("timeout while dialing TLS peer"),
+		}
 	case resp := <-resultCh:
-		return &resp, nil
+		return resp
 	}
 
 }
@@ -68,7 +74,7 @@ func expiresIn(cert *x509.Certificate) int {
 	return int(daysLeft)
 }
 
-func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
+func CheckCertsforAllPeers(endpoints []string, timeoutDurationSeconds int, insecureskip bool) {
 
 	var wg sync.WaitGroup
 	resultCh := make(chan CertResult, len(endpoints))
@@ -83,27 +89,21 @@ func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
 			defer wg.Done()
 
 			ctx := context.Background()
-			certs, err := RetreiveCertificateFromPeer(ctx, ep, insecureskip)
+			response := DialTlsPeer(ctx, timeoutDurationSeconds, ep, insecureskip)
 
-			if err != nil {
+			if response.Err != nil {
 				resultCh <- CertResult{
 					Endpoint: ep,
-					Err:      err,
+					Err:      response.Err,
 				}
 				return
 			}
 
-			for _, cert := range certs.Certificates {
+			certs := response.conn.ConnectionState().PeerCertificates
+
+			for _, cert := range certs {
 
 				daysLeft := expiresIn(cert)
-
-				if certs.Err != nil {
-					resultCh <- CertResult{
-						Endpoint: ep,
-						Err:      certs.Err,
-					}
-					return
-				}
 
 				resultCh <- CertResult{
 					Endpoint:  ep,
@@ -139,7 +139,7 @@ func CheckCertsforAllPeers(endpoints []string, insecureskip bool) {
 func configureCertExpiryReportTable() table.Writer {
 
 	t := table.NewWriter()
-	t.SetTitle("🔐 SSL Check: Who is Expiring Soon?")
+	t.SetTitle("SSL Check: Who is Expiring Soon?")
 	t.SetAutoIndex(true)
 	t.Style().Format.Header = text.FormatTitle
 	t.AppendHeader(table.Row{"Domain", "Valid From", "Expires In", "Days Left", "Status"})

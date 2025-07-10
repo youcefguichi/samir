@@ -28,5 +28,5 @@ func main() {
 		"nytimes.com:443", "theguardian.com:443", "forbes.com:443", "bloomberg.com:443",
 		"reuters.com:443", "wsj.com:443", "ft.com:443", "economist.com:443",
 	}
-	CheckCertsforAllPeers(domains, true)
+	CheckCertsforAllPeers(domains, 4, true)
 }
