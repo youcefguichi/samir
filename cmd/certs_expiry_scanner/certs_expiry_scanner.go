@@ -31,16 +31,20 @@ type Response struct {
 
 func RetreiveCertificateFromPeer(ctx context.Context, endpoint string, insecureSkip bool) (*Response, error) {
 
-	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
 	resultCh := make(chan Response)
 
 	go func() {
 		con, err := tls.Dial("tcp", endpoint, &tls.Config{InsecureSkipVerify: insecureSkip})
-		// if err != nil {
-		// 	return nil, errors.New("failed to connect to endpoint: " + endpoint + " " + err.Error())
-		// }
-
+		if err != nil {
+			resultCh <- Response{
+				Certificates: nil,
+				Err:          err,
+			}
+			return
+		}
 		certs := con.ConnectionState().PeerCertificates
 		resultCh <- Response{
 			Certificates: certs,
