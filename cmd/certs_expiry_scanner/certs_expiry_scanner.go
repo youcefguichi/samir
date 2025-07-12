@@ -1,19 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
-	"fmt"
+	"log"
+	"net/http"
+	"os"
 	"sync"
 	"time"
-
-	"github.com/jedib0t/go-pretty/v6/table"
-	"github.com/jedib0t/go-pretty/v6/text"
-
-	//"math"
-	//"runtime"
-	context "context"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type CertResult struct {
@@ -28,6 +27,91 @@ type CertResult struct {
 type TlsResponse struct {
 	conn *tls.Conn
 	Err  error
+}
+
+type Config struct {
+	Endpoints          []string `json:"endpoints"`
+	Timeout            int      `json:"timeout"`
+	InsecureSkipVerify bool     `json:"insecure_skip_verify"`
+	CheckInterval      int      `json:"check_interval"`
+}
+
+var (
+	CertExpiresIn = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "certificate_expires_in",
+			Help: "Number of days until the certificate expires.",
+		},
+		[]string{
+			"domain",
+			"valid_from",
+			"expires_at",
+			"common_name",
+			"status"},
+	)
+)
+
+func CheckCertsExpirationAndExportItAsPrometheusMetrics() {
+
+	prometheus.MustRegister(CertExpiresIn)
+	configLocation := os.Getenv("CONFIG_LOCATION")
+	
+	config := ParseConfigFromJson(configLocation)
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(config.CheckInterval) * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			log.Printf("Performing periodic certificate check (every %d seconds)...\n", config.CheckInterval)
+			CheckCertsforAllPeers(config.Endpoints, config.Timeout, config.InsecureSkipVerify)
+		}
+	}()
+
+	StartCertsMetricsServer()
+}
+
+func CheckCertsforAllPeers(endpoints []string, timeoutDurationSeconds int, insecureskip bool) {
+
+	var wg sync.WaitGroup
+
+	CertExpiresIn.Reset()
+
+	for _, endpoint := range endpoints {
+
+		wg.Add(1)
+
+		go func(ep string) {
+
+			defer wg.Done()
+			ctx := context.Background()
+			response := DialTlsPeer(ctx, timeoutDurationSeconds, ep, insecureskip)
+
+			if response.Err != nil {
+				log.Printf("couldn't connect to %s: %v \n", ep, response.Err)
+				return
+			}
+
+			certs := response.conn.ConnectionState().PeerCertificates
+
+			for _, cert := range certs {
+
+				daysLeft := ExpiresIn(cert)
+				CertExpiresIn.WithLabelValues(
+					ep,
+					cert.NotBefore.Format(time.RFC3339),
+					cert.NotAfter.Format(time.RFC3339),
+					cert.Subject.CommonName,
+					GetCertificateStatus(daysLeft)).Set(float64(daysLeft))
+
+			}
+
+		}(endpoint)
+
+	}
+
+	wg.Wait()
+
 }
 
 func DialTlsPeer(ctx context.Context, timeoutDurationSeconds int, endpoint string, insecureSkip bool) TlsResponse {
@@ -68,90 +152,26 @@ func DialTlsPeer(ctx context.Context, timeoutDurationSeconds int, endpoint strin
 
 }
 
-func expiresIn(cert *x509.Certificate) int {
+func ParseConfigFromJson(configLocation string) Config {
 
-	daysLeft := time.Until(cert.NotAfter).Hours() / 24
-	return int(daysLeft)
-}
-
-func CheckCertsforAllPeers(endpoints []string, timeoutDurationSeconds int, insecureskip bool) {
-
-	var wg sync.WaitGroup
-	resultCh := make(chan CertResult, len(endpoints))
-
-	t := configureCertExpiryReportTable()
-
-	for _, endpoint := range endpoints {
-
-		wg.Add(1)
-
-		go func(ep string) {
-			defer wg.Done()
-
-			ctx := context.Background()
-			response := DialTlsPeer(ctx, timeoutDurationSeconds, ep, insecureskip)
-
-			if response.Err != nil {
-				resultCh <- CertResult{
-					Endpoint: ep,
-					Err:      response.Err,
-				}
-				return
-			}
-
-			certs := response.conn.ConnectionState().PeerCertificates
-
-			for _, cert := range certs {
-
-				daysLeft := expiresIn(cert)
-
-				resultCh <- CertResult{
-					Endpoint:  ep,
-					NotBefore: cert.NotBefore,
-					NotAfter:  cert.NotAfter,
-					DaysLeft:  daysLeft,
-					Status:    certStatus(daysLeft),
-					Err:       nil,
-				}
-
-			}
-
-		}(endpoint)
-
+	data, err := os.ReadFile(configLocation)
+	if err != nil {
+		log.Fatalf("Failed to read config file: %v", err)
 	}
 
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
+	var config Config
 
-	for result := range resultCh {
-		if result.Err != nil {
-			fmt.Printf("X %s — %s\n", result.Endpoint, result.Err)
-			continue
-		}
-		t.AppendRow(table.Row{result.Endpoint, result.NotBefore, result.NotAfter, result.DaysLeft, result.Status})
+	err = json.Unmarshal(data, &config)
+
+	if err != nil {
+		log.Fatalf("Failed to parse config file: %v", err)
 	}
 
-	fmt.Println(t.Render())
+	return config
+
 }
 
-func configureCertExpiryReportTable() table.Writer {
-
-	t := table.NewWriter()
-	t.SetTitle("SSL Check: Who is Expiring Soon?")
-	t.SetAutoIndex(true)
-	t.Style().Format.Header = text.FormatTitle
-	t.AppendHeader(table.Row{"Domain", "Valid From", "Expires In", "Days Left", "Status"})
-
-	t.SortBy([]table.SortBy{
-		{Name: "Expires In", Mode: table.Asc},
-	})
-
-	return t
-}
-
-func certStatus(daysLeft int) string {
+func GetCertificateStatus(daysLeft int) string {
 	switch {
 	case daysLeft < 0:
 		return "EXPIRED"
@@ -161,5 +181,19 @@ func certStatus(daysLeft int) string {
 		return "WARNING"
 	default:
 		return "OKAY"
+	}
+}
+
+func ExpiresIn(cert *x509.Certificate) int {
+	daysLeft := time.Until(cert.NotAfter).Hours() / 24
+	return int(daysLeft)
+}
+
+func StartCertsMetricsServer() {
+	http.Handle("/metrics", promhttp.Handler())
+
+	log.Println("Starting HTTP server on 0.0.0.0:3005, metrics are serverd at this endpoint /metrics")
+	if err := http.ListenAndServe("0.0.0.0:3005", nil); err != nil {
+		log.Fatalf("Error starting HTTP server: %v", err)
 	}
 }
