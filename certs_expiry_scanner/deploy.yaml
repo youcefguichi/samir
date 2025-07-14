@@ -12,7 +12,8 @@ data:
             "facebook.com:443",
             "crashloop.sh:443",
             "google.com:443",
-            "enterhungary.com:443"
+            "enterhungary.com:443",
+            "192.168.49.2:8443"
         ]
     }
 ---

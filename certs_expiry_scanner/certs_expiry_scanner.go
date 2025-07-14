@@ -103,7 +103,6 @@ func CheckCertsforAllPeers(endpoints []string, timeoutDurationSeconds int, insec
 					cert.NotAfter.Format(time.RFC3339),
 					cert.Subject.CommonName,
 					GetCertificateStatus(daysLeft)).Set(float64(daysLeft))
-
 			}
 
 		}(endpoint)
