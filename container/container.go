@@ -51,7 +51,7 @@ func (c *Container) Run() {
 		c.Setup()
 	case "child_process":
 		c.MustSetupRootFsAndMountProcCgroup()
-		c.RunContainerCommandAs("guest") // TODO: make this configurable, or run as a specific user.
+		c.RunContainerCommandAs(c.runAs) // TODO: make this configurable, or run as a specific user.
 	default:
 		log.Fatalf("unknown command %s \n", os.Args[1])
 	}
