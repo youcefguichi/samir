@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/user"
+	re "regexp"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -15,104 +19,131 @@ const (
 	re_run_me         = "/proc/self/exe"
 	container_command = "child_process"
 	cgroup_mount_path = "/sys/fs/cgroup"
+	proc_mount_info   = "/proc/self/mountinfo"
 )
 
 type Container struct {
 	Name   string
 	RootFs string // path to the downloaded rootfs, TODO: get the rootfs from docker hub images.
 
-	MemoryRequest int
-	MemoryLimit   int
+	MemoryRequest string // e.g. "10Mb"
+	MemoryLimit   string
 
-	CpuRequest int
-	CpuLimit   int
+	CpuRequest string // e.g. "10m"
+	CpuLimit   string
 
-	runAs string
-}
-
-func main() {
-	c := &Container{
-		Name:   "samir",
-		RootFs: "minialpinerootfs",
-		// MemoryRequest: 10,
-		// MemoryLimit:   20,
-		// CpuRequest:    10,
-		// CpuLimit:      20,
-		runAs: "guest",
-	}
-
-	c.Run()
+	RunAs string
 }
 
 func (c *Container) Run() {
 
 	switch os.Args[1] {
 	case "run":
-		c.Setup()
+		c.Init()
 	case "child_process":
-		c.MustSetupRootFsAndMountProcCgroup()
-		c.RunContainerCommandAs(c.runAs) // TODO: make this configurable, or run as a specific user.
+		c.SetupRootFsWithProcAndCgroupMounts()
+		c.RunContainerCommandAs(c.RunAs) // TODO: make this configurable, or run as a specific user.
 	default:
 		log.Fatalf("unknown command %s \n", os.Args[1])
 	}
 
 }
 
-func (c *Container) Setup() {
+func (c *Container) Init() {
+
+	err := createNewCgroup(c.Name)
+
+	if os.IsNotExist(err); err != nil {
+		log.Printf("cgroup  with name '%s' already exist skipping creation .. \n", c.Name)
+	} else {
+		log.Printf("couldn't create cgroup '%s' due to %s \n", c.Name, err)
+	}
+
+	c.CreateNamespaces(unix.CLONE_NEWUTS | unix.CLONE_NEWPID | unix.CLONE_NEWNS)
+}
+
+func (c *Container) CreateNamespaces(namespaces uintptr) {
 
 	cmd := exec.Command(re_run_me, append([]string{container_command}, os.Args[2:]...)...)
-
 	cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = os.Stdin, os.Stdout, os.Stderr, &unix.SysProcAttr{
 		Cloneflags: unix.CLONE_NEWUTS | unix.CLONE_NEWPID | unix.CLONE_NEWNS,
 	}
 
 	if err := cmd.Run(); err != nil {
-		log.Fatal("setting up container failed %s \n", err)
+		log.Fatalf("setting up container failed %s \n", err)
 	}
 }
 
-func (c *Container) MustSetupRootFsAndMountProcCgroup() { // TODO: should i return an error or panic?
+func (c *Container) SetupRootFsWithProcAndCgroupMounts() { // TODO: should i return an error or panic?
 
 	if err := unix.Chroot(c.RootFs); err != nil {
-		log.Fatal("error setting the new rootFs: %s \n", err)
+		log.Fatalf("error setting the new rootFs: %s \n", err)
 	}
 
 	if err := os.Chdir("/"); err != nil {
-		log.Fatal("couldn't change the root directory to the new rootFs view %s \n", err)
+		log.Fatalf("couldn't change the root directory to the new rootFs view %s \n", err)
 	}
-
-	// mount the proc filesystem and cgroup filesystem inside the container
 
 	if err := unix.Mount("proc", "proc", "proc", 0, ""); err != nil {
-		log.Fatal("error mounting proc fs: %s \n", err)
+		log.Fatalf("error mounting proc fs: %s \n", err)
 	}
 
-	if err := os.MkdirAll("/sys/fs/cgroup", 0755); err != nil {
-		log.Fatal("error creating /sys/fs/cgroup: %s \n", err)
+	_, err := os.Stat(cgroup_mount_path)
+	if os.IsNotExist(err) {
+		log.Printf("cgroup directory does not exist, creating it...\n")
+		if err := os.MkdirAll(cgroup_mount_path, 0777); err != nil {
+			log.Fatalf("error creating %s: %s \n", cgroup_mount_path, err)
+		}
 	}
 
-	err := unix.Mount("cgroup", "/sys/fs/cgroup", "cgroup2", 0, "")
-	if err != nil {
-		log.Printf("error mounting cgroup fs: %s \n", err)
+	if !isMounted(cgroup_mount_path) {
+		err = unix.Mount("cgroup", cgroup_mount_path, "cgroup2", 0, "")
+		if err != nil {
+			log.Printf("error mounting cgroup fs: %s \n", err.Error())
+		}
 	}
+
+	// Set resource limits and requests
+
+	if err := setMemoryLimits(c.MemoryLimit, c.Name); err != nil {
+		log.Fatalf("error setting memory limit for cgroup %s: %s \n", c.Name, err)
+	}
+
+	if err := setMemoryRequests(c.MemoryRequest, c.Name); err != nil {
+		log.Fatalf("error setting memory request for cgroup %s: %s \n", c.Name, err)
+	}
+
+	if err := setCpuLimits(c.CpuLimit, c.Name); err != nil {
+		log.Fatalf("error setting cpu limit for cgroup %s: %s \n", c.Name, err)
+	}
+
+	if err := setCpuRequests(c.CpuRequest, c.Name); err != nil {
+		log.Fatalf("error setting cpu request for cgroup %s: %s \n", c.Name, err)
+	}
+
+	assignPidToCgroup(os.Getpid(), c.Name)
 
 }
 
 func (c *Container) RunContainerCommandAs(username string) {
 
+	if !isRootOrGuest(username) {
+		log.Fatalf("you can only run the container command as 'root' or 'guest', got '%s' \n", username)
+	}
+
 	u, err := user.Lookup(username)
 	if err != nil {
-		log.Fatal("user not found: %s \n", err)
+		log.Fatalf("user not found: %s \n", err)
 	}
 
 	uid, err := strconv.Atoi(u.Uid)
 	if err != nil {
-		log.Fatal("error parsing UID: %s \n", err)
+		log.Fatalf("error parsing UID: %s \n", err)
 	}
 
 	gid, err := strconv.Atoi(u.Gid)
 	if err != nil {
-		log.Fatal("error parsing GID: %s \n", err)
+		log.Fatalf("error parsing GID: %s \n", err)
 
 	}
 
@@ -128,9 +159,150 @@ func (c *Container) RunContainerCommandAs(username string) {
 	}
 
 	if err := cmd.Run(); err != nil {
-		log.Fatal("error running the container command: %s \n", err)
+		log.Fatalf("error running the container command: %s \n", err)
 	}
 
-	// TODO: Setup Cgroup (polish my ugly cgroup function)
+}
 
+func createNewCgroup(name string) error {
+	cgroup_path := cgroup_mount_path + "/" + name
+	return os.Mkdir(cgroup_path, 0755)
+}
+
+func assignPidToCgroup(pid int, cgroupName string) error {
+	cgroupPath := cgroup_mount_path + "/" + cgroupName
+	return os.WriteFile(cgroupPath+"/cgroup.procs", []byte(strconv.Itoa(pid)), 0644)
+}
+
+func setMemoryLimits(value string, cgroupName string) error {
+	v, err := ValidateMemoryInputAndExtractValue(value)
+	if err != nil {
+		return fmt.Errorf("error validating memory value: %s, %w", value, err)
+	}
+
+	memoryLimitPath := cgroup_mount_path + "/" + cgroupName + "/memory.max"
+
+	log.Printf("setting memory limit to %sMb for cgroup %s\n", v, cgroupName)
+
+	v = convertFromMbtoBytes(v)
+	return os.WriteFile(memoryLimitPath, []byte(v), 0644)
+}
+
+func setMemoryRequests(value string, cgroupName string) error {
+	v, err := ValidateMemoryInputAndExtractValue(value)
+	if err != nil {
+		return fmt.Errorf("error validating memory request value: %s, %w", value, err)
+	}
+	memoryRequestPath := cgroup_mount_path + "/" + cgroupName + "/memory.low"
+
+	log.Printf("setting memory request to %sMb for cgroup %s\n", v, cgroupName)
+
+	v = convertFromMbtoBytes(v)
+	return os.WriteFile(memoryRequestPath, []byte(v), 0644)
+}
+
+func setCpuLimits(value string, cgroupName string) error {
+	v, err := validateCpuInputAndExtractValue(value)
+	if err != nil {
+		return fmt.Errorf("error validating cpu limit value: %s, %w", value, err)
+	}
+
+	cpuLimitPath := cgroup_mount_path + "/" + cgroupName + "/cpu.max"
+
+	log.Printf("setting cpu limit to %sm for cgroup %s\n", v, cgroupName)
+
+	v = convertMillicoresToCpuSpec(v)
+	return os.WriteFile(cpuLimitPath, []byte(v), 0644)
+}
+
+func setCpuRequests(value string, cgroupName string) error {
+	v, err := validateCpuInputAndExtractValue(value)
+	if err != nil {
+		return fmt.Errorf("error validating cpu request value: %s, %w", value, err)
+	}
+
+	cpuRequestPath := cgroup_mount_path + "/" + cgroupName + "/cpu.weight"
+
+	log.Printf("setting cpu request to %sm for cgroup %s\n", v, cgroupName)
+
+	//v = convertMillicoresToCpuSpec(v)
+	return os.WriteFile(cpuRequestPath, []byte(v), 0644)
+}
+
+func isMounted(target string) bool {
+
+	file, err := os.Open(proc_mount_info)
+	if err != nil {
+		return false
+	}
+
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+
+		if fields[4] == target {
+			return true
+		}
+	}
+	return false
+}
+
+func isRootOrGuest(username string) bool {
+	return username == "root" || username == "guest"
+}
+
+func validateCpuInputAndExtractValue(cpuValue string) (string, error) {
+
+	re := re.MustCompile(`^(\d+)m$`)
+	res := re.FindStringSubmatch(cpuValue)
+	if res == nil {
+		return "", fmt.Errorf("invalid cpu value format: %s, expected format is <number>m", cpuValue)
+	}
+
+	return res[1], nil
+}
+
+func ValidateMemoryInputAndExtractValue(memoryValue string) (string, error) {
+
+	re := re.MustCompile(`^(\d+)Mb$`)
+	res := re.FindStringSubmatch(memoryValue)
+	if res == nil {
+		return "", fmt.Errorf("invalid memory value format: %s, expected format is <number>Mb", memoryValue)
+	}
+
+	return res[1], nil
+}
+
+func convertFromMbtoBytes(memoryMB string) string {
+	v, err := strconv.ParseInt(memoryMB, 10, 64)
+
+	if err != nil {
+		panic(err)
+	}
+
+	if v < 0 {
+		panic("memory value cannot be negative")
+	}
+
+	valueInBytes := v * 1024 * 1024
+	return strconv.FormatInt(valueInBytes, 10)
+}
+
+func convertMillicoresToCpuSpec(millicores string) string {
+	v, err := strconv.ParseInt(millicores, 10, 64)
+
+	if err != nil {
+		panic(err)
+	}
+
+	if v < 0 {
+		panic("cpu value cannot be negative")
+	}
+
+	period := int64(100000) // 100ms in microseconds : this is the default period for cgroup v2
+	quota := (v * period) / 1000
+
+	return fmt.Sprintf("%d %d", quota, period)
 }
