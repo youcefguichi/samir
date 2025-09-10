@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/unix"
+	"runtime"
 )
 
 const (
@@ -50,6 +51,9 @@ func (c *Container) Run() {
 }
 
 func (c *Container) Init() {
+    
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	err := createNewCgroup(c.Name)
 
@@ -59,6 +63,8 @@ func (c *Container) Init() {
 		log.Printf("couldn't create cgroup '%s' due to %s \n", c.Name, err)
 	}
 
+    ConfigureHostNetworking()
+	CreateNewNs("container-1") 
 	c.CreateNamespaces(unix.CLONE_NEWUTS | unix.CLONE_NEWPID | unix.CLONE_NEWNS)
 }
 
@@ -66,7 +72,7 @@ func (c *Container) CreateNamespaces(namespaces uintptr) {
 
 	cmd := exec.Command(re_run_me, append([]string{container_command}, os.Args[2:]...)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = os.Stdin, os.Stdout, os.Stderr, &unix.SysProcAttr{
-		Cloneflags: unix.CLONE_NEWUTS | unix.CLONE_NEWPID | unix.CLONE_NEWNS,
+		Cloneflags: namespaces,
 	}
 
 	if err := cmd.Run(); err != nil {

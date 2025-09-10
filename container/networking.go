@@ -10,8 +10,15 @@ import (
 )
 
 const (
-	samir_default_bridge_cidr = "10.10.0.0/16"
+	samir_bridge_default_name = "samir0"
+	bridge_ip                 = "10.10.0.1/16"
+	sh0                       = "sh0"
+	sc0                       = "sco"
 )
+
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+}
 
 // host networking:
 // set default bridge network to 10.10.0.0/16
@@ -43,10 +50,10 @@ func CreateBridge(name string) {
 		log.Fatalf("couldn't find link, %v", err)
 	}
 
-	addr, err := link.ParseAddr(samir_default_bridge_cidr)
+	addr, err := link.ParseAddr(bridge_ip)
 
 	if err != nil {
-		log.Fatalf("couldn't parse address %s", samir_default_bridge_cidr)
+		log.Fatalf("couldn't parse address %s", bridge_ip)
 	}
 
 	err = link.AddrAdd(brLink, addr)
@@ -60,17 +67,53 @@ func CreateBridge(name string) {
 	if err != nil {
 		log.Fatalf("couldn't starts up bridge, %s", err)
 	}
+}
+
+func SetupVeth(br string, sho string, sco string) {
+
+	veth := &link.Veth{
+		LinkAttrs: link.LinkAttrs{Name: sho},
+		PeerName:  sco,
+	}
+
+	err := link.LinkAdd(veth)
+
+	if err != nil {
+		log.Fatalf("create veth pair: %v", err)
+	}
+
+	hostVeth, err := link.LinkByName(sho)
+
+	if err != nil {
+		log.Fatalf("lookup host veth: %v", err)
+	}
+
+	bridge, err := link.LinkByName(br)
+
+	if err != nil {
+		log.Fatalf("lookup bridge: %v", err)
+	}
+
+	err = link.LinkSetMaster(hostVeth, bridge)
+
+	if err != nil {
+		log.Fatalf("set host veth master %v", err)
+	}
+
+	err = link.LinkSetUp(hostVeth)
+
+	if err != nil {
+		log.Fatalf("bring host veth up %s", err)
+	}
 
 }
 
-func createNewNs(ns string) {
+func ConfigureHostNetworking() {
+	CreateBridge(samir_bridge_default_name)
+	SetupVeth(samir_bridge_default_name, sh0, sc0)
+}
 
-	const (
-		bridge        = "samir0"
-		hostVeth      = "v0h"
-		containerVeth = "v0c"
-		bridgeIP      = "10.10.0.1/16"
-	)
+func CreateNewNs(ns string) {
 
 	// when settin up operations like namespaces
 	// locking the thread the current running goroutine is a must
