@@ -1,4 +1,4 @@
-module main
+module github.com/youcef/samir
 
 go 1.23.1
 
