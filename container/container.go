@@ -12,15 +12,19 @@ import (
 	"strings"
 	"syscall"
 
+	link "github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
-	"runtime"
 )
 
 const (
-	re_run_me         = "/proc/self/exe"
-	container_command = "child_process"
-	cgroup_mount_path = "/sys/fs/cgroup"
-	proc_mount_info   = "/proc/self/mountinfo"
+	re_run_me                 = "/proc/self/exe"
+	container_command         = "child_process"
+	cgroup_mount_path         = "/sys/fs/cgroup"
+	proc_mount_info           = "/proc/self/mountinfo"
+	samir_bridge_default_name = "samir0"
+	bridge_ip                 = "10.10.0.1/16"
+	sh0                       = "sh0"
+	sc0                       = "sc0"
 )
 
 type Container struct {
@@ -51,10 +55,6 @@ func (c *Container) Run() {
 }
 
 func (c *Container) Init() {
-    
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	err := createNewCgroup(c.Name)
 
 	if os.IsNotExist(err); err != nil {
@@ -63,24 +63,52 @@ func (c *Container) Init() {
 		log.Printf("couldn't create cgroup '%s' due to %s \n", c.Name, err)
 	}
 
-    ConfigureHostNetworking()
-	CreateNewNs("container-1") 
-	c.CreateNamespaces(unix.CLONE_NEWUTS | unix.CLONE_NEWPID | unix.CLONE_NEWNS)
+	veth := &link.Veth{
+		LinkAttrs: link.LinkAttrs{Name: "sh-4"}, // TODO: generate automatically
+		PeerName:  "sc-4",
+	}
+
+	MustCreateVethPair("samir-br", veth)
+
+	c.CloneAndConfigureContainerNetworking(unix.CLONE_NEWUTS|unix.CLONE_NEWPID|unix.CLONE_NEWNS|unix.CLONE_NEWNET, veth, veth.PeerName)
 }
 
-func (c *Container) CreateNamespaces(namespaces uintptr) {
+func (c *Container) CloneAndConfigureContainerNetworking(namespaces uintptr, veth *link.Veth, sc0 string) {
 
 	cmd := exec.Command(re_run_me, append([]string{container_command}, os.Args[2:]...)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = os.Stdin, os.Stdout, os.Stderr, &unix.SysProcAttr{
 		Cloneflags: namespaces,
 	}
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
 		log.Fatalf("setting up container failed %s \n", err)
+	}
+
+	hostPID := cmd.Process.Pid
+	log.Printf("Container init host PID: %d", hostPID)
+
+	// EYY WORKS!!
+	cns := &ContainerNetworkSpec{
+		ContainerPID:  hostPID,
+		ContainerVeth: sc0,
+		IP:            "10.10.0.10/16",
+		GatewayIP:     "10.10.0.4",
+	}
+
+	MustSetupContainerNetwork(cns)
+
+	if err := cmd.Wait(); err != nil {
+		log.Fatalf("container process exited with error: %v", err)
 	}
 }
 
 func (c *Container) SetupRootFsWithProcAndCgroupMounts() { // TODO: should i return an error or panic?
+	fmt.Printf("Container setup rootfs PID: %d\n", os.Getpid())
+	if cwd, err := os.Getwd(); err != nil {
+		log.Printf("warning: getwd failed: %v", err)
+	} else {
+		log.Printf("current working directory before chroot: %s", cwd)
+	}
 
 	if err := unix.Chroot(c.RootFs); err != nil {
 		log.Fatalf("error setting the new rootFs: %s \n", err)

@@ -2,23 +2,11 @@ package main
 
 import (
 	"log"
-	"runtime"
-	"strings"
+	"net"
 
 	link "github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
-
-const (
-	samir_bridge_default_name = "samir0"
-	bridge_ip                 = "10.10.0.1/16"
-	sh0                       = "sh0"
-	sc0                       = "sco"
-)
-
-func init() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-}
 
 // host networking:
 // set default bridge network to 10.10.0.0/16
@@ -32,34 +20,54 @@ func init() {
 // each container request an ip from the bridg's dhcp
 // add default routing to point to the bridge ip.
 
-func CreateBridge(name string) {
+type BridgeSpec struct {
+	ID           int
+	Name         string
+	NetworkSpace string
+	// BridgeInterface    string
+	// ContainerInterface string
+	IP string
+	// HostVeth           *link.Veth
+}
+
+type ContainerNetworkSpec struct {
+	IP            string
+	ContainerPID  int
+	ContainerVeth string
+	Interface     string
+	GatewayIP     string
+	DHCPServer    string
+	DefaultRoute  *link.Route
+}
+
+func CreateBridge(bridge *BridgeSpec) {
 
 	br := &link.Bridge{
-		LinkAttrs: link.LinkAttrs{Name: name},
+		LinkAttrs: link.LinkAttrs{Name: bridge.Name},
 	}
 
 	err := link.LinkAdd(br)
 
 	if err != nil {
-		log.Fatalf("couldn't create link, %v", err)
+		log.Printf("couldn't create link, %v", err)
 	}
 
-	brLink, err := link.LinkByName(name)
+	brLink, err := link.LinkByName(bridge.Name)
 
 	if err != nil {
 		log.Fatalf("couldn't find link, %v", err)
 	}
 
-	addr, err := link.ParseAddr(bridge_ip)
+	addr, err := link.ParseAddr(bridge.IP)
 
 	if err != nil {
-		log.Fatalf("couldn't parse address %s", bridge_ip)
+		log.Fatalf("couldn't parse address %s", bridge.IP)
 	}
 
 	err = link.AddrAdd(brLink, addr)
 
 	if err != nil {
-		log.Fatalf("couldn't assign ip range, %s", err)
+		log.Printf("couldn't assign ip range, %s", err)
 	}
 
 	err = link.LinkSetUp(brLink)
@@ -67,22 +75,46 @@ func CreateBridge(name string) {
 	if err != nil {
 		log.Fatalf("couldn't starts up bridge, %s", err)
 	}
+
 }
 
-func SetupVeth(br string, sho string, sco string) {
+func MustSetupContainerNetwork(containerNsSpec *ContainerNetworkSpec) {
 
-	veth := &link.Veth{
-		LinkAttrs: link.LinkAttrs{Name: sho},
-		PeerName:  sco,
+	nsHandle, err := netns.GetFromPid(containerNsSpec.ContainerPID)
+
+	if err != nil {
+		log.Printf("couldn't get namespace %v", err)
 	}
+
+	defer nsHandle.Close()
+
+	vethNetworkLink, err := link.LinkByName(containerNsSpec.ContainerVeth)
+
+	if err != nil {
+		log.Printf("couldn't get link %v", err)
+	}
+
+	err = link.LinkSetNsFd(vethNetworkLink, int(nsHandle))
+
+	if err != nil {
+		log.Printf("could not set netns for container veth: %v", err)
+	}
+
+	MustSetupContainerInterface(
+		containerNsSpec.ContainerPID,
+		containerNsSpec.ContainerVeth,
+		containerNsSpec.IP, containerNsSpec.GatewayIP)
+}
+
+func MustCreateVethPair(br string, veth *link.Veth) {
 
 	err := link.LinkAdd(veth)
 
 	if err != nil {
-		log.Fatalf("create veth pair: %v", err)
+		log.Printf("create veth pair: %v", err)
 	}
 
-	hostVeth, err := link.LinkByName(sho)
+	hostVeth, err := link.LinkByName(veth.Name)
 
 	if err != nil {
 		log.Fatalf("lookup host veth: %v", err)
@@ -108,34 +140,54 @@ func SetupVeth(br string, sho string, sco string) {
 
 }
 
-func ConfigureHostNetworking() {
-	CreateBridge(samir_bridge_default_name)
-	SetupVeth(samir_bridge_default_name, sh0, sc0)
-}
+func MustSetupContainerInterface(pid int, ifName string, IP string, GwIP string) {
 
-func CreateNewNs(ns string) {
-
-	// when settin up operations like namespaces
-	// locking the thread the current running goroutine is a must
-	// since the gouroutine can be scheduled into a different os thread
-	// this may lead to creating a network operations on a different namespace
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	newNs, err := netns.NewNamed(ns)
+	nsHandle, err := netns.GetFromPid(pid)
 
 	if err != nil {
-
-		if strings.Contains(err.Error(), "file exists") {
-			newNs, err = netns.GetFromName(ns)
-			if err != nil {
-				log.Fatalf("could no open existing ns %s, %v", ns, err)
-			}
-		}
-
-		log.Fatalf("failed to create netns %s: %v", ns, err)
+		log.Fatalf("could not get netns for pid %d: %v", pid, err)
 	}
 
-	defer newNs.Close()
+	defer nsHandle.Close()
+
+	currentNS, err := netns.Get()
+	if err != nil {
+		log.Fatalf("could not get current netns: %v", err)
+	}
+	defer currentNS.Close()
+
+	if err := netns.Set(nsHandle); err != nil {
+		log.Fatalf("could not set netns: %v", err)
+	}
+	defer netns.Set(currentNS)
+
+	Netnslink, err := link.LinkByName(ifName)
+	if err != nil {
+		log.Fatalf("could not get link %s: %v", ifName, err)
+	}
+
+	addr, err := link.ParseAddr(IP) // TODO: request the IP FROM A DHCP SERVER
+	if err != nil {
+		log.Fatalf("could not parse IP address: %v", err)
+	}
+
+	if err := link.AddrAdd(Netnslink, addr); err != nil {
+		log.Fatalf("could not add IP address: %v", err)
+	}
+
+	if err := link.LinkSetUp(Netnslink); err != nil {
+		log.Fatalf("could not bring up interface: %v", err)
+	}
+
+	// Add default route to the gateway
+	gw := net.ParseIP(GwIP)
+	route := &link.Route{
+		LinkIndex: Netnslink.Attrs().Index,
+		Gw:        gw,
+	}
+
+	if err := link.RouteAdd(route); err != nil {
+		log.Fatalf("could not add route: %v", err)
+	}
 
 }

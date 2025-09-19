@@ -1,6 +1,21 @@
 package main
 
+import "log"
+
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+}
+
 func main() {
+
+	bridge := &BridgeSpec{
+		Name:         "samir-br",
+		NetworkSpace: "10.10.0.0/16",
+		IP:           "10.10.0.1/16",
+	}
+
+	CreateBridge(bridge)
+
 	c := &Container{
 		Name:          "samir",
 		RootFs:        "alpine-mini-v3",
@@ -9,7 +24,6 @@ func main() {
 		CpuRequest:    "100m",
 		CpuLimit:      "500m",
 		RunAs:         "root",
-
 
 		// network : "bridge",
 	}
