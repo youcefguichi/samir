@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net"
+	"os/exec"
 
 	link "github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
@@ -103,7 +104,9 @@ func MustSetupContainerNetwork(containerNsSpec *ContainerNetworkSpec) {
 	MustSetupContainerInterface(
 		containerNsSpec.ContainerPID,
 		containerNsSpec.ContainerVeth,
-		containerNsSpec.IP, containerNsSpec.GatewayIP)
+		containerNsSpec.IP,
+		containerNsSpec.GatewayIP,
+	)
 }
 
 func MustCreateVethPair(br string, veth *link.Veth) {
@@ -190,4 +193,36 @@ func MustSetupContainerInterface(pid int, ifName string, IP string, GwIP string)
 		log.Fatalf("could not add route: %v", err)
 	}
 
+}
+
+func EnableIPForwardingOnTheHost() {
+
+	cmd := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
+	err := cmd.Run()
+
+	if err != nil {
+		log.Fatalf("enable ip_forward: %v ", err)
+	}
+}
+
+func EnableNATMasquerade(bridge string, networkSpace string) {
+	cmd := exec.Command(
+		"iptables",
+		"-t",
+		"nat",
+		"-A",
+		"POSTROUTING",
+		"-s",
+		networkSpace,
+		"!",
+		"-o",
+		bridge,
+		"-j",
+		"MASQUERADE")
+
+	err := cmd.Run()
+
+	if err != nil {
+		log.Fatalf("NAT Masquerade: %v ", err)
+	}
 }
