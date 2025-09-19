@@ -15,6 +15,8 @@ func main() {
 	}
 
 	CreateBridge(bridge)
+	EnableIPForwardingOnTheHost()
+	EnableNATMasquerade(bridge.Name, bridge.NetworkSpace)
 
 	c := &Container{
 		Name:          "samir",
