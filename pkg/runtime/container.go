@@ -14,6 +14,7 @@ import (
 
 	link "github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+	samirNet "github.com/youcef/samir/pkg/networking"
 )
 
 const (
@@ -68,7 +69,7 @@ func (c *Container) Init() {
 		PeerName:  "sc-4",
 	}
 
-	MustCreateVethPair("samir-br", veth)
+	samirNet.MustCreateVethPair("samir-br", veth)
 
 	c.CloneAndConfigureContainerNetworking(unix.CLONE_NEWUTS|unix.CLONE_NEWPID|unix.CLONE_NEWNS|unix.CLONE_NEWNET, veth, veth.PeerName)
 }
@@ -88,14 +89,14 @@ func (c *Container) CloneAndConfigureContainerNetworking(namespaces uintptr, vet
 	log.Printf("Container init host PID: %d", hostPID)
 
 	// EYY WORKS!!
-	cns := &ContainerNetworkSpec{
+	cns := &samirNet.ContainerNetworkSpec{
 		ContainerPID:  hostPID,
 		ContainerVeth: sc0,
 		IP:            "10.10.0.12/16",
 		GatewayIP:     "10.10.0.1",
 	}
 
-	MustSetupContainerNetwork(cns)
+	samirNet.MustSetupContainerNetwork(cns)
 
 	if err := cmd.Wait(); err != nil {
 		log.Fatalf("container process exited with error: %v", err)

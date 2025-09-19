@@ -1,3 +1,2 @@
 bin
-whisper
-container/runc
+alpine-mini-v3

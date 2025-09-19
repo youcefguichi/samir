@@ -2,9 +2,9 @@ package main
 
 import (
 	"log"
-	"github.com/youcef/ssl-server/pkg/runtime"
-	"github.com/youcef/ssl-server/pkg/networking"
-	
+
+	samirNet "github.com/youcef/samir/pkg/networking"
+	samirRuntime "github.com/youcef/samir/pkg/runtime"
 )
 
 func init() {
@@ -13,17 +13,17 @@ func init() {
 
 func main() {
 
-	bridge := &BridgeSpec{
+	bridge := &samirNet.BridgeSpec{
 		Name:         "samir-br",
 		NetworkSpace: "10.10.0.0/16",
 		IP:           "10.10.0.1/16",
 	}
 
-	CreateBridge(bridge)
-	EnableIPForwardingOnTheHost()
-	EnableNATMasquerade(bridge.Name, bridge.NetworkSpace)
+	samirNet.CreateBridge(bridge)
+	samirNet.EnableIPForwardingOnTheHost()
+	samirNet.EnableNATMasquerade(bridge.Name, bridge.NetworkSpace)
 
-	c := &Container{
+	c := &samirRuntime.Container{
 		Name:          "samir",
 		RootFs:        "alpine-mini-v3",
 		MemoryRequest: "100Mb",
