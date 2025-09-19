@@ -1,0 +1,18 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run built container",
+            "type": "go",
+            "request": "launch",
+            "mode": "exec",
+            "program": "${workspaceFolder}/container/container",
+            "args": [
+                "run",
+                "/bin/sh"
+            ],
+            "preLaunchTask": "Build container",
+            "showLog": true
+        }
+    ]
+}

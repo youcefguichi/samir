@@ -5,3 +5,7 @@ move_samir_to_bin:
 	go build -o samir container.go main.go
 	sudo mv ./samir /usr/local/bin/samir
 	sudo chmod +x /usr/local/bin/samir
+
+build:
+	go build -o samir container.go main.go networking.go
+	sudo ./container run /bin/sh
