@@ -91,8 +91,8 @@ func (c *Container) CloneAndConfigureContainerNetworking(namespaces uintptr, vet
 	cns := &ContainerNetworkSpec{
 		ContainerPID:  hostPID,
 		ContainerVeth: sc0,
-		IP:            "10.10.0.10/16",
-		GatewayIP:     "10.10.0.4",
+		IP:            "10.10.0.12/16",
+		GatewayIP:     "10.10.0.1",
 	}
 
 	MustSetupContainerNetwork(cns)
