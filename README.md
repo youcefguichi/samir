@@ -2,6 +2,19 @@
 
 This repository is a work‑in‑progress minimal container runtime experiment (namespaces, veth, bridge, cgroups, etc.).
 
+### Roadmap
+- [ ] Refactor the runtime package.
+- [ ] Add proper CLI to interacte with samir
+    - `samir run <my-api-binary> --config config.json` 
+- [ ] Add teardown/cleanup for mounts & network (bridge/veth removal ..)
+- [ ] Add GitHub Actions CI (build + test)
+- [ ] Improve dynamic IP assignment (DHCP)
+- [ ] Implement sandbox mode
+    - `samir run --sandboxed <my-api-binary> --config config.json`
+- [ ] Run samir as daemon
+- [ ] Make samir OCI compliant
+
+
 ## Prerequisites
 - Go 1.23+
 - Linux (with user having sudo for network / namespace / cgroup ops)
