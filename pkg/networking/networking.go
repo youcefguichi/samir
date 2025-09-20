@@ -206,6 +206,9 @@ func EnableIPForwardingOnTheHost() {
 }
 
 func EnableNATMasquerade(bridge string, networkSpace string) {
+
+	// for now the full nat config is under scripts/nat.sh
+	// TODO: move it here
 	cmd := exec.Command(
 		"iptables",
 		"-t",

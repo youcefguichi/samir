@@ -25,7 +25,7 @@ func main() {
 
 	c := &samirRuntime.Container{
 		Name:          "samir",
-		RootFs:        "alpine-mini-v3",
+		RootFs:        "rootfs/samir-os",
 		MemoryRequest: "100Mb",
 		MemoryLimit:   "500Mb",
 		CpuRequest:    "100m",

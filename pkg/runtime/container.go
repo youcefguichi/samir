@@ -92,7 +92,7 @@ func (c *Container) CloneAndConfigureContainerNetworking(namespaces uintptr, vet
 	cns := &samirNet.ContainerNetworkSpec{
 		ContainerPID:  hostPID,
 		ContainerVeth: sc0,
-		IP:            "10.10.0.12/16",
+		IP:            "10.10.0.13/16",
 		GatewayIP:     "10.10.0.1",
 	}
 
