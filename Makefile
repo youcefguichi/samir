@@ -1,6 +1,6 @@
 BINARY := samir
 CMD    := ./cmd/$(BINARY)
-ARGS   := run /bin/sh
+ARGS   := run /bin/bash
 
 .PHONY: build run test clean
 

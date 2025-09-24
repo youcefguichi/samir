@@ -12,14 +12,11 @@ import (
 	"strings"
 	"syscall"
 
-	link "github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
-	samirNet "github.com/youcef/samir/pkg/networking"
 )
 
 const (
 	re_run_me                 = "/proc/self/exe"
-	container_command         = "child_process"
 	cgroup_mount_path         = "/sys/fs/cgroup"
 	proc_mount_info           = "/proc/self/mountinfo"
 	samir_bridge_default_name = "samir0"
@@ -28,90 +25,61 @@ const (
 	sc0                       = "sc0"
 )
 
-type Container struct {
+// build container
+// build the image using docker
+// samir would extract to image to a specific location and use it as a rootfs
+
+// runtime (where saming is doing its job)
+// the first run:
+// create and setup cgroup
+// clone the namespaces
+// the second run:
+// perform chroot
+// change the working directory
+// mount /proc filesystem
+
+type ContainerSpec struct {
+	ID         string
+	Name       string
+	Rootfs     string
+	Entrypoint []string
+	CMD        []string
+	RunAs      string
+	Resources  *CgroupSpec
+	// RunSandboxed bool
+	// NetworkConfig      *samirNet.ContainerNetworkSpec
+	IP string
+}
+
+type CgroupSpec struct {
 	Name   string
-	RootFs string // path to the downloaded rootfs, TODO: get the rootfs from docker hub images.
-
-	MemoryRequest string // e.g. "10Mb"
-	MemoryLimit   string
-
-	CpuRequest string // e.g. "10m"
-	CpuLimit   string
-
-	RunAs string
+	MaxMem string
+	MinMem string
+	MaxCPU string
+	MinCPU string
 }
 
-func (c *Container) Run() {
+func PrepareClone(namespaces uintptr) (*exec.Cmd, *os.File, *os.File) {
 
-	switch os.Args[1] {
-	case "run":
-		c.Init()
-	case "child_process":
-		c.SetupRootFsWithProcAndCgroupMounts()
-		c.RunContainerCommandAs(c.RunAs) // TODO: make this configurable, or run as a specific user.
-	default:
-		log.Fatalf("unknown command %s \n", os.Args[1])
+	r, w, err := os.Pipe()
+
+	if err != nil {
+		log.Fatalf("setting up pipe %s \n", err)
 	}
 
-}
-
-func (c *Container) Init() {
-	err := createNewCgroup(c.Name)
-
-	if os.IsNotExist(err); err != nil {
-		log.Printf("cgroup  with name '%s' already exist skipping creation .. \n", c.Name)
-	} else {
-		log.Printf("couldn't create cgroup '%s' due to %s \n", c.Name, err)
-	}
-
-	veth := &link.Veth{
-		LinkAttrs: link.LinkAttrs{Name: "sh-4"}, // TODO: generate automatically
-		PeerName:  "sc-4",
-	}
-
-	samirNet.MustCreateVethPair("samir-br", veth)
-
-	c.CloneAndConfigureContainerNetworking(unix.CLONE_NEWUTS|unix.CLONE_NEWPID|unix.CLONE_NEWNS|unix.CLONE_NEWNET, veth, veth.PeerName)
-}
-
-func (c *Container) CloneAndConfigureContainerNetworking(namespaces uintptr, veth *link.Veth, sc0 string) {
-
-	cmd := exec.Command(re_run_me, append([]string{container_command}, os.Args[2:]...)...)
+	cmd := exec.Command(re_run_me, append([]string{"child"}, os.Args[2:]...)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = os.Stdin, os.Stdout, os.Stderr, &unix.SysProcAttr{
 		Cloneflags: namespaces,
 	}
 
-	if err := cmd.Start(); err != nil {
-		log.Fatalf("setting up container failed %s \n", err)
-	}
+	cmd.ExtraFiles = []*os.File{r}
 
-	hostPID := cmd.Process.Pid
-	log.Printf("Container init host PID: %d", hostPID)
-
-	// EYY WORKS!!
-	cns := &samirNet.ContainerNetworkSpec{
-		ContainerPID:  hostPID,
-		ContainerVeth: sc0,
-		IP:            "10.10.0.13/16",
-		GatewayIP:     "10.10.0.1",
-	}
-
-	samirNet.MustSetupContainerNetwork(cns)
-
-	if err := cmd.Wait(); err != nil {
-		log.Fatalf("container process exited with error: %v", err)
-	}
+	return cmd, r, w
 }
 
-func (c *Container) SetupRootFsWithProcAndCgroupMounts() { // TODO: should i return an error or panic?
-	fmt.Printf("Container setup rootfs PID: %d\n", os.Getpid())
-	if cwd, err := os.Getwd(); err != nil {
-		log.Printf("warning: getwd failed: %v", err)
-	} else {
-		log.Printf("current working directory before chroot: %s", cwd)
-	}
+func SetupRootFs(rootfs string) { // TODO: should i return an error or panic?
 
-	if err := unix.Chroot(c.RootFs); err != nil {
+	if err := unix.Chroot(rootfs); err != nil {
 		log.Fatalf("error setting the new rootFs: %s \n", err)
 	}
 
@@ -138,29 +106,9 @@ func (c *Container) SetupRootFsWithProcAndCgroupMounts() { // TODO: should i ret
 		}
 	}
 
-	// Set resource limits and requests
-
-	if err := setMemoryLimits(c.MemoryLimit, c.Name); err != nil {
-		log.Fatalf("error setting memory limit for cgroup %s: %s \n", c.Name, err)
-	}
-
-	if err := setMemoryRequests(c.MemoryRequest, c.Name); err != nil {
-		log.Fatalf("error setting memory request for cgroup %s: %s \n", c.Name, err)
-	}
-
-	if err := setCpuLimits(c.CpuLimit, c.Name); err != nil {
-		log.Fatalf("error setting cpu limit for cgroup %s: %s \n", c.Name, err)
-	}
-
-	if err := setCpuRequests(c.CpuRequest, c.Name); err != nil {
-		log.Fatalf("error setting cpu request for cgroup %s: %s \n", c.Name, err)
-	}
-
-	assignPidToCgroup(os.Getpid(), c.Name)
-
 }
 
-func (c *Container) RunContainerCommandAs(username string) {
+func RunContainerCommandAs(username string) {
 
 	if !isRootOrGuest(username) {
 		log.Fatalf("you can only run the container command as 'root' or 'guest', got '%s' \n", username)
@@ -199,17 +147,39 @@ func (c *Container) RunContainerCommandAs(username string) {
 
 }
 
-func createNewCgroup(name string) error {
-	cgroup_path := cgroup_mount_path + "/" + name
-	return os.Mkdir(cgroup_path, 0755)
+func CreateAndConfigureCgroup(c *CgroupSpec) {
+
+	cgroup_path := cgroup_mount_path + "/" + c.Name
+	err := os.Mkdir(cgroup_path, 0755)
+
+	if err != nil {
+		log.Printf("couldn't create cgroup %v", err)
+	}
+
+	if err := SetMaxMem(c.MaxMem, c.Name); err != nil {
+		log.Fatalf("error setting memory limit for cgroup %s: %s \n", c.Name, err)
+	}
+
+	if err := SetMinMem(c.MinMem, c.Name); err != nil {
+		log.Fatalf("error setting memory request for cgroup %s: %s \n", c.Name, err)
+	}
+
+	if err := setMaxCPU(c.MaxCPU, c.Name); err != nil {
+		log.Fatalf("error setting cpu limit for cgroup %s: %s \n", c.Name, err)
+	}
+
+	if err := SetMinCPU(c.MinCPU, c.Name); err != nil {
+		log.Fatalf("error setting cpu request for cgroup %s: %s \n", c.Name, err)
+	}
+
 }
 
-func assignPidToCgroup(pid int, cgroupName string) error {
+func AttachInitProcessToCgroup(pid int, cgroupName string) error {
 	cgroupPath := cgroup_mount_path + "/" + cgroupName
 	return os.WriteFile(cgroupPath+"/cgroup.procs", []byte(strconv.Itoa(pid)), 0644)
 }
 
-func setMemoryLimits(value string, cgroupName string) error {
+func SetMaxMem(value string, cgroupName string) error {
 	v, err := ValidateMemoryInputAndExtractValue(value)
 	if err != nil {
 		return fmt.Errorf("error validating memory value: %s, %w", value, err)
@@ -223,7 +193,7 @@ func setMemoryLimits(value string, cgroupName string) error {
 	return os.WriteFile(memoryLimitPath, []byte(v), 0644)
 }
 
-func setMemoryRequests(value string, cgroupName string) error {
+func SetMinMem(value string, cgroupName string) error {
 	v, err := ValidateMemoryInputAndExtractValue(value)
 	if err != nil {
 		return fmt.Errorf("error validating memory request value: %s, %w", value, err)
@@ -236,7 +206,7 @@ func setMemoryRequests(value string, cgroupName string) error {
 	return os.WriteFile(memoryRequestPath, []byte(v), 0644)
 }
 
-func setCpuLimits(value string, cgroupName string) error {
+func setMaxCPU(value string, cgroupName string) error {
 	v, err := validateCpuInputAndExtractValue(value)
 	if err != nil {
 		return fmt.Errorf("error validating cpu limit value: %s, %w", value, err)
@@ -250,7 +220,7 @@ func setCpuLimits(value string, cgroupName string) error {
 	return os.WriteFile(cpuLimitPath, []byte(v), 0644)
 }
 
-func setCpuRequests(value string, cgroupName string) error {
+func SetMinCPU(value string, cgroupName string) error {
 	v, err := validateCpuInputAndExtractValue(value)
 	if err != nil {
 		return fmt.Errorf("error validating cpu request value: %s, %w", value, err)
@@ -262,6 +232,36 @@ func setCpuRequests(value string, cgroupName string) error {
 
 	//v = convertMillicoresToCpuSpec(v)
 	return os.WriteFile(cpuRequestPath, []byte(v), 0644)
+}
+
+func ReadDataSentByParentPID(fd int) (int, error) {
+
+	pipe := os.NewFile(uintptr(3), "parent_pid_pipe")
+
+	defer pipe.Close()
+
+	reader := bufio.NewReader(pipe)
+
+	line, err := reader.ReadString('\n')
+
+	log.Println(line)
+
+	if err != nil && !strings.Contains(err.Error(), "EOF") {
+		return 0, err
+	}
+
+	s := strings.TrimSpace(line)
+
+	var pidString string
+	if strings.HasPrefix(s, "PID:") {
+		pidString = strings.Split(s, ":")[1]
+	}
+
+	var pidInt int
+	pidInt, _ = strconv.Atoi(pidString)
+
+	return pidInt, nil
+
 }
 
 func isMounted(target string) bool {

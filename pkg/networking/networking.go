@@ -1,10 +1,12 @@
 package networking
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"os/exec"
 
+	uid "github.com/google/uuid"
 	link "github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 )
@@ -31,15 +33,15 @@ type BridgeSpec struct {
 	// HostVeth           *link.Veth
 }
 
-type ContainerNetworkSpec struct {
-	IP            string
-	ContainerPID  int
-	ContainerVeth string
-	Interface     string
-	GatewayIP     string
-	DHCPServer    string
-	DefaultRoute  *link.Route
-}
+// type ContainerNetworkSpec struct {
+// 	IP            string
+// 	ContainerPID  int
+// 	ContainerVeth string
+// 	Interface     string
+// 	GatewayIP     string
+// 	DHCPServer    string
+// 	DefaultRoute  *link.Route
+// }
 
 func CreateBridge(bridge *BridgeSpec) {
 
@@ -79,9 +81,18 @@ func CreateBridge(bridge *BridgeSpec) {
 
 }
 
-func MustSetupContainerNetwork(containerNsSpec *ContainerNetworkSpec) {
+func ApplyNetworkConfiguration(pid int, c_iface string, ip string, gw_ip string) {
+    
+    // this function should be splitted
 
-	nsHandle, err := netns.GetFromPid(containerNsSpec.ContainerPID)
+
+	// // get network specs
+	// ip := os.Getenv("IP")
+	// c_iface := os.Getenv("C_IFACE")
+	// gw_ip := os.Getenv("GW_IP")
+	log.Printf("IP: %s, C_IFACE: %s, GW_IP: %s", ip, c_iface, gw_ip)
+
+	nsHandle, err := netns.GetFromPid(pid)
 
 	if err != nil {
 		log.Printf("couldn't get namespace %v", err)
@@ -89,7 +100,7 @@ func MustSetupContainerNetwork(containerNsSpec *ContainerNetworkSpec) {
 
 	defer nsHandle.Close()
 
-	vethNetworkLink, err := link.LinkByName(containerNsSpec.ContainerVeth)
+	vethNetworkLink, err := link.LinkByName(c_iface)
 
 	if err != nil {
 		log.Printf("couldn't get link %v", err)
@@ -102,14 +113,16 @@ func MustSetupContainerNetwork(containerNsSpec *ContainerNetworkSpec) {
 	}
 
 	MustSetupContainerInterface(
-		containerNsSpec.ContainerPID,
-		containerNsSpec.ContainerVeth,
-		containerNsSpec.IP,
-		containerNsSpec.GatewayIP,
+		pid,
+		c_iface,
+		ip,
+		gw_ip,
 	)
 }
 
-func MustCreateVethPair(br string, veth *link.Veth) {
+func CreateNewVethPair(br string) string {
+
+	veth := PrepareNewVethObject()
 
 	err := link.LinkAdd(veth)
 
@@ -141,6 +154,30 @@ func MustCreateVethPair(br string, veth *link.Veth) {
 		log.Fatalf("bring host veth up %s", err)
 	}
 
+	return veth.PeerName
+}
+
+func PrepareNewVethObject() *link.Veth {
+	id := uid.New().String()[:4] // TODO: what is the best way to do this
+	veth := &link.Veth{
+		LinkAttrs: link.LinkAttrs{Name: "sh-" + id},
+		PeerName:  "sc-" + id,
+	}
+
+	return veth
+}
+func MoveVethToNetworkNamespace(ifaceName string, pid int) error {
+	// Find the link by name in the host namespace
+	l, err := link.LinkByName(ifaceName)
+	if err != nil {
+		return fmt.Errorf("failed to find link %s in host namespace: %w", ifaceName, err)
+	}
+
+	// Move the link into the child's network namespace
+	if err := link.LinkSetNsPid(l, pid); err != nil {
+		return fmt.Errorf("failed to set link netns for pid %d: %w", pid, err)
+	}
+	return nil
 }
 
 func MustSetupContainerInterface(pid int, ifName string, IP string, GwIP string) {
