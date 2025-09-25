@@ -27,14 +27,17 @@ func main() {
 		IP:           "10.10.0.1/16",
 	}
 
-	samirNet.CreateBridge(bridge)
-	// samirNet.EnableIPForwardingOnTheHost()
-	// samirNet.EnableNATMasquerade(bridge.Name, bridge.NetworkSpace)
+	if os.Args[1] != "child" {
+		samirNet.CreateBridge(bridge)
+		samirNet.EnableIPForwardingOnTheHost()
+		samirNet.EnableNATMasquerade(bridge.Name, bridge.NetworkSpace)
+	}
 
+	// TODO: the limits are not being enforced check the race condition with the parent child
 	resources := &samirRuntime.CgroupSpec{
 		Name:   "samir",
-		MaxMem: "10Mb",
-		MinMem: "10Mb",
+		MaxMem: "1Mb",
+		MinMem: "1Mb",
 		MaxCPU: "100m",
 		MinCPU: "500m",
 	}
@@ -48,36 +51,30 @@ func main() {
 		Entrypoint: []string{"/bin/sh"},
 		Resources:  resources,
 		RunAs:      "root",
-		IP:         "10.10.0.1/16",
+		IP:         "10.10.0.4/16",
 	}
 
 	if os.Args[1] == "run" {
 
-		//
 		samirRuntime.CreateAndConfigureCgroup(container.Resources)
 		containerIface := samirNet.CreateNewVethPair(bridge.Name)
-		cmd, read, write := samirRuntime.PrepareClone(namspaces)
+		cmd, _, _ := samirRuntime.PrepareClone(namspaces)
 
-		// pass container network specs to the child proccess
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "IP", container.IP))
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "C_IFACE", containerIface))
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "GW_IP", "10.10.0.1"))
-		// cmd.Env = append(os.Environ(), fmt.Sprintf("%s=%d", "PARENT_PID_PIPE", 3))
 
 		if err := cmd.Start(); err != nil {
 			log.Fatalf("setting up container failed %s \n", err)
 		}
 
-		read.Close()
-
 		pid := cmd.Process.Pid
+		samirNet.MoveVethToNetworkNamespace(pid, containerIface)
+		err := samirRuntime.AttachInitProcessToCgroup(pid, container.Resources.Name)
 
-		samirNet.ApplyNetworkConfiguration(pid, containerIface, container.IP, "10.10.0.1")
-
-		log.Printf("pid: %v", pid)
-
-		fmt.Fprintf(write, "PID:%v", pid)
-		write.Close()
+		if err != nil {
+			log.Fatalf("couldn't assign pid to cgroup %v", err)
+		}
 
 		if err := cmd.Wait(); err != nil {
 			log.Fatalf("container process exited with error: %v", err)
@@ -85,28 +82,9 @@ func main() {
 	}
 
 	if os.Args[1] == "child" {
-		// samirRuntime.SetupRootFs(container.Rootfs)
-
-		pid, err := samirRuntime.ReadDataSentByParentPID(3)
-
-		if err != nil {
-			log.Fatalf("couldn't read the data sent by the parent pid %v", err)
-		}
-
-		log.Printf("parent pid from child: %v", pid)
-
-		// get pid
-		// samirNet.ApplyNetworkConfiguration(pid)
-		// err = samirRuntime.AttachInitProcessToCgroup(pid, container.Resources.Name)
-
-		// if err != nil {
-		// 	log.Fatalf("couldn't assign pid to cgroup %v", err)
-		// }
+		samirNet.MustSetupContainerInterface()
 		samirRuntime.SetupRootFs(container.Rootfs)
 		samirRuntime.RunContainerCommandAs("root")
-
 	}
-
-	// samirRuntime.ManageProcessStage(os.samirNet)
 
 }

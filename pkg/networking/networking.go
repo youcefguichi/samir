@@ -1,9 +1,9 @@
 package networking
 
 import (
-	"fmt"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 
 	uid "github.com/google/uuid"
@@ -81,16 +81,7 @@ func CreateBridge(bridge *BridgeSpec) {
 
 }
 
-func ApplyNetworkConfiguration(pid int, c_iface string, ip string, gw_ip string) {
-    
-    // this function should be splitted
-
-
-	// // get network specs
-	// ip := os.Getenv("IP")
-	// c_iface := os.Getenv("C_IFACE")
-	// gw_ip := os.Getenv("GW_IP")
-	log.Printf("IP: %s, C_IFACE: %s, GW_IP: %s", ip, c_iface, gw_ip)
+func MoveVethToNetworkNamespace(pid int, c_iface string) {
 
 	nsHandle, err := netns.GetFromPid(pid)
 
@@ -112,12 +103,6 @@ func ApplyNetworkConfiguration(pid int, c_iface string, ip string, gw_ip string)
 		log.Printf("could not set netns for container veth: %v", err)
 	}
 
-	MustSetupContainerInterface(
-		pid,
-		c_iface,
-		ip,
-		gw_ip,
-	)
 }
 
 func CreateNewVethPair(br string) string {
@@ -166,40 +151,12 @@ func PrepareNewVethObject() *link.Veth {
 
 	return veth
 }
-func MoveVethToNetworkNamespace(ifaceName string, pid int) error {
-	// Find the link by name in the host namespace
-	l, err := link.LinkByName(ifaceName)
-	if err != nil {
-		return fmt.Errorf("failed to find link %s in host namespace: %w", ifaceName, err)
-	}
 
-	// Move the link into the child's network namespace
-	if err := link.LinkSetNsPid(l, pid); err != nil {
-		return fmt.Errorf("failed to set link netns for pid %d: %w", pid, err)
-	}
-	return nil
-}
+func MustSetupContainerInterface() {
 
-func MustSetupContainerInterface(pid int, ifName string, IP string, GwIP string) {
-
-	nsHandle, err := netns.GetFromPid(pid)
-
-	if err != nil {
-		log.Fatalf("could not get netns for pid %d: %v", pid, err)
-	}
-
-	defer nsHandle.Close()
-
-	currentNS, err := netns.Get()
-	if err != nil {
-		log.Fatalf("could not get current netns: %v", err)
-	}
-	defer currentNS.Close()
-
-	if err := netns.Set(nsHandle); err != nil {
-		log.Fatalf("could not set netns: %v", err)
-	}
-	defer netns.Set(currentNS)
+	ifName := os.Getenv("C_IFACE")
+	IP := os.Getenv("IP")
+	GwIP := os.Getenv("GW_IP")
 
 	Netnslink, err := link.LinkByName(ifName)
 	if err != nil {

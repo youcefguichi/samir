@@ -1,6 +1,6 @@
 BINARY := samir
 CMD    := ./cmd/$(BINARY)
-ARGS   := run /bin/bash
+ARGS   := run /etc/printer
 
 .PHONY: build run test clean
 
