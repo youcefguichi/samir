@@ -59,22 +59,14 @@ type CgroupSpec struct {
 	MinCPU string
 }
 
-func PrepareClone(namespaces uintptr) (*exec.Cmd, *os.File, *os.File) {
-
-	r, w, err := os.Pipe()
-
-	if err != nil {
-		log.Fatalf("setting up pipe %s \n", err)
-	}
+func PrepareClone(namespaces uintptr) *exec.Cmd {
 
 	cmd := exec.Command(re_run_me, append([]string{"child"}, os.Args[2:]...)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = os.Stdin, os.Stdout, os.Stderr, &unix.SysProcAttr{
 		Cloneflags: namespaces,
 	}
 
-	cmd.ExtraFiles = []*os.File{r}
-
-	return cmd, r, w
+	return cmd
 }
 
 func SetupRootFs(rootfs string) { // TODO: should i return an error or panic?
@@ -234,34 +226,21 @@ func SetMinCPU(value string, cgroupName string) error {
 	return os.WriteFile(cpuRequestPath, []byte(v), 0644)
 }
 
-func ReadDataSentByParentPID(fd int) (int, error) {
+func WaitForSignalFromParentPID(fd int) error {
 
 	pipe := os.NewFile(uintptr(3), "parent_pid_pipe")
-
 	defer pipe.Close()
 
 	reader := bufio.NewReader(pipe)
-
-	line, err := reader.ReadString('\n')
-
-	log.Println(line)
+	line, err := reader.ReadString(1)
 
 	if err != nil && !strings.Contains(err.Error(), "EOF") {
-		return 0, err
+		return err
 	}
 
-	s := strings.TrimSpace(line)
+	log.Printf("received start signal from the parent pid [SIGNAL=%v] \n", line)
 
-	var pidString string
-	if strings.HasPrefix(s, "PID:") {
-		pidString = strings.Split(s, ":")[1]
-	}
-
-	var pidInt int
-	pidInt, _ = strconv.Atoi(pidString)
-
-	return pidInt, nil
-
+	return nil
 }
 
 func isMounted(target string) bool {

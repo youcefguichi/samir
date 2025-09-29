@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 
+	// "time"
+
 	uid "github.com/google/uuid"
 	samirNet "github.com/youcef/samir/pkg/networking"
 	samirRuntime "github.com/youcef/samir/pkg/runtime"
@@ -36,8 +38,8 @@ func main() {
 	// TODO: the limits are not being enforced check the race condition with the parent child
 	resources := &samirRuntime.CgroupSpec{
 		Name:   "samir",
-		MaxMem: "1Mb",
-		MinMem: "1Mb",
+		MaxMem: "10Mb",
+		MinMem: "10Mb",
 		MaxCPU: "100m",
 		MinCPU: "500m",
 	}
@@ -56,13 +58,20 @@ func main() {
 
 	if os.Args[1] == "run" {
 
+		r, w, err := os.Pipe()
+
+		if err != nil {
+			log.Fatalf("create pipe %v", err)
+		}
+
 		samirRuntime.CreateAndConfigureCgroup(container.Resources)
 		containerIface := samirNet.CreateNewVethPair(bridge.Name)
-		cmd, _, _ := samirRuntime.PrepareClone(namspaces)
+		cmd := samirRuntime.PrepareClone(namspaces)
 
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "IP", container.IP))
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "C_IFACE", containerIface))
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", "GW_IP", "10.10.0.1"))
+		cmd.ExtraFiles = []*os.File{r} // pass the read end of the pipe to child process
 
 		if err := cmd.Start(); err != nil {
 			log.Fatalf("setting up container failed %s \n", err)
@@ -70,11 +79,15 @@ func main() {
 
 		pid := cmd.Process.Pid
 		samirNet.MoveVethToNetworkNamespace(pid, containerIface)
-		err := samirRuntime.AttachInitProcessToCgroup(pid, container.Resources.Name)
+		err = samirRuntime.AttachInitProcessToCgroup(pid, container.Resources.Name)
 
 		if err != nil {
 			log.Fatalf("couldn't assign pid to cgroup %v", err)
 		}
+
+		r.Close()
+		fmt.Fprintf(w, "%d", 1) // signal to the child process to start to avoid race condition.
+		w.Close()
 
 		if err := cmd.Wait(); err != nil {
 			log.Fatalf("container process exited with error: %v", err)
@@ -82,6 +95,12 @@ func main() {
 	}
 
 	if os.Args[1] == "child" {
+
+		err := samirRuntime.WaitForSignalFromParentPID(3)
+		if err != nil {
+			log.Fatalf("receiving signal from parent %v \n", err)
+		}
+
 		samirNet.MustSetupContainerInterface()
 		samirRuntime.SetupRootFs(container.Rootfs)
 		samirRuntime.RunContainerCommandAs("root")
