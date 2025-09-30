@@ -39,24 +39,22 @@ const (
 // mount /proc filesystem
 
 type ContainerSpec struct {
-	ID         string
-	Name       string
-	Rootfs     string
-	Entrypoint []string
-	CMD        []string
-	RunAs      string
-	Resources  *CgroupSpec
-	// RunSandboxed bool
-	// NetworkConfig      *samirNet.ContainerNetworkSpec
-	IP string
+	ID         string      `json:"id"`
+	Name       string      `json:"name"`
+	Rootfs     string      `json:"rootfs"`
+	Entrypoint []string    `json:"entrypoint"`
+	CMD        []string    `json:"cmd"`
+	RunAs      string      `json:"run_as"`
+	Cgroup     *CgroupSpec `json:"cgroup"`
+	IP         string      `json:"ip"`
 }
 
 type CgroupSpec struct {
-	Name   string
-	MaxMem string
-	MinMem string
-	MaxCPU string
-	MinCPU string
+	Name   string `json:"name"`
+	MaxMem string `json:"max_mem"`
+	MinMem string `json:"min_mem"`
+	MaxCPU string `json:"max_cpu"`
+	MinCPU string `json:"min_cpu"`
 }
 
 func PrepareClone(namespaces uintptr) *exec.Cmd {

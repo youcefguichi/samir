@@ -1,13 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
-	// "time"
-
-	uid "github.com/google/uuid"
 	samirNet "github.com/youcef/samir/pkg/networking"
 	samirRuntime "github.com/youcef/samir/pkg/runtime"
 	"golang.org/x/sys/unix"
@@ -19,14 +17,19 @@ func init() {
 
 const (
 	namspaces = unix.CLONE_NEWUTS | unix.CLONE_NEWPID | unix.CLONE_NEWNS | unix.CLONE_NEWNET
+
+	// networking defaults
+	br_name          = "samir-br"
+	br_ip            = "10.10.0.1/16"
+	br_network_space = "10.10.0.0/16"
 )
 
 func main() {
 
 	bridge := &samirNet.BridgeSpec{
-		Name:         "samir-br",
-		NetworkSpace: "10.10.0.0/16",
-		IP:           "10.10.0.1/16",
+		Name:         br_name,
+		IP:           br_ip,
+		NetworkSpace: br_network_space,
 	}
 
 	if os.Args[1] != "child" {
@@ -35,25 +38,16 @@ func main() {
 		samirNet.EnableNATMasquerade(bridge.Name, bridge.NetworkSpace)
 	}
 
-	// TODO: the limits are not being enforced check the race condition with the parent child
-	resources := &samirRuntime.CgroupSpec{
-		Name:   "samir",
-		MaxMem: "10Mb",
-		MinMem: "10Mb",
-		MaxCPU: "100m",
-		MinCPU: "500m",
+	data, err := os.ReadFile("bundle/config.json")
+
+	var container samirRuntime.ContainerSpec
+	if err != nil {
+		log.Printf("open file %v", err)
 	}
 
-	id := uid.New()
-
-	container := &samirRuntime.ContainerSpec{
-		ID:         id.String()[:8],
-		Name:       "samir",
-		Rootfs:     "rootfs/samir-os",
-		Entrypoint: []string{"/bin/sh"},
-		Resources:  resources,
-		RunAs:      "root",
-		IP:         "10.10.0.4/16",
+	err = json.Unmarshal(data, &container)
+	if err != nil {
+		log.Fatalf("Unmarshel json %v", err)
 	}
 
 	if os.Args[1] == "run" {
@@ -64,7 +58,7 @@ func main() {
 			log.Fatalf("create pipe %v", err)
 		}
 
-		samirRuntime.CreateAndConfigureCgroup(container.Resources)
+		samirRuntime.CreateAndConfigureCgroup(container.Cgroup)
 		containerIface := samirNet.CreateNewVethPair(bridge.Name)
 		cmd := samirRuntime.PrepareClone(namspaces)
 
@@ -79,7 +73,7 @@ func main() {
 
 		pid := cmd.Process.Pid
 		samirNet.MoveVethToNetworkNamespace(pid, containerIface)
-		err = samirRuntime.AttachInitProcessToCgroup(pid, container.Resources.Name)
+		err = samirRuntime.AttachInitProcessToCgroup(pid, container.Cgroup.Name)
 
 		if err != nil {
 			log.Fatalf("couldn't assign pid to cgroup %v", err)
