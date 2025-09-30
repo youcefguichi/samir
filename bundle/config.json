@@ -1,0 +1,15 @@
+{
+  "id": "abc123",
+  "name": "samir",
+  "rootfs": "bundle/rootfs",
+  "entrypoint": ["/bin/sh"],
+  "cgroup": {
+    "name": "samir",
+    "max_mem": "2000Mb",
+    "min_mem": "0Mb",
+    "max_cpu": "100m",
+    "min_cpu": "10m"
+  },
+  "run_as": "root",
+  "ip": "10.10.0.4/16"
+}
