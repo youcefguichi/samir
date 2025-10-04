@@ -6,13 +6,13 @@
             "type": "go",
             "request": "launch",
             "mode": "exec",
-            "program": "${workspaceFolder}/container/container",
+            "program": "${workspaceFolder}/samir",
             "args": [
                 "run",
                 "/bin/sh"
             ],
-            "preLaunchTask": "Build container",
             "showLog": true
         }
+        
     ]
 }

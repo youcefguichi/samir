@@ -1,42 +1,13 @@
-# Samir (Minimal Container Runtime WIP)
+# Samir (Minimal Container Runtime)
 
-This repository is a work‑in‑progress minimal container runtime experiment (namespaces, veth, bridge, cgroups, etc.).
+A minimal container runtime experiment (namespaces, veth, bridge, cgroups, etc.).
 
-### Roadmap
-- [ ] Refactor the runtime package.
-- [ ] Add proper CLI to interacte with samir
-    - `samir run <my-api-binary> --config config.json` 
-- [ ] Add teardown/cleanup for mounts & network (bridge/veth removal ..)
-- [ ] Add GitHub Actions CI (build + test)
-- [ ] Improve dynamic IP assignment (DHCP)
-- [ ] Implement sandbox mode
-    - `samir run --sandboxed <my-api-binary> --config config.json`
-- [ ] Run samir as daemon
-- [ ] Make samir OCI compliant
+## Understand and tinker with the project
 
-
-## Prerequisites
-- Go 1.23+
-- Linux (with user having sudo for network / namespace / cgroup ops)
-- iptables (for NAT if you add it later)
-- (Optional) Rootfs directory (e.g. extracted Alpine or Debian)
-
-## Make Targets
-
-| Target    | Description                                   |
-|-----------|-----------------------------------------------|
-| make build | Build the samir binary (outputs ./samir)     |
-| make run  | Build then run the container demo (uses sudo) |
-| make test | Run all Go tests                              |
-| make clean| Remove built binary                           |
-
-
-## Why sudo on run?
-Creating network namespaces, moving veth pairs, mounting proc, applying cgroups, etc. require CAP_SYS_ADMIN / CAP_NET_ADMIN which you typically have only with sudo. (switch later to daemon architecture ...)
+run `make build`, then start a debugging session, I already provided `.vscode/lunch.json`. Just choose you break points and that's it.
 
 ## Current Flow
-1. Prepare or extract a rootfs (e.g. rootfs/samir-os).
-2. Adjust code (rootfs path, networking).
+1. Prepare or extract a rootfs (see scripts/extract-rootfs-from-docker-image.sh)
 3. Execute: `make run`
 4. Inside the spawned shell, inspect:
    ```bash
@@ -46,6 +17,40 @@ Creating network namespaces, moving veth pairs, mounting proc, applying cgroups,
    ps aux
    ping 8.8.8.8
    ```
+## config.json
+Now you should provide the container spec via `config.json` as follow:
+
+```json
+{
+  "id": "abc123",
+  "name": "my-container",
+  "rootfs": "bundle/rootfs",
+  "entrypoint": ["/bin/sh"],
+  "cgroup": {
+    "name": "my-container",
+    "max_mem": "2000Mb",
+    "min_mem": "10Mb",
+    "max_cpu": "100m",
+    "min_cpu": "10m"
+  },
+  "run_as": "root",
+  "ip": "10.10.0.4/16"
+}
+```
+
+## make run example output
+```bash
+➜  root git:(main) ✗ make run
+2025/10/04 21:00:55 networking.go:55: couldn't create link, file exists
+2025/10/04 21:00:55 networking.go:73: couldn't assign ip range, file exists
+2025/10/04 21:00:55 container.go:146: couldn't create cgroup mkdir /sys/fs/cgroup/samir: file exists
+2025/10/04 21:00:55 container.go:180: setting memory limit to 2000Mb for cgroup samir
+2025/10/04 21:00:55 container.go:193: setting memory request to 10Mb for cgroup samir
+2025/10/04 21:00:55 container.go:207: setting cpu limit to 100m for cgroup samir
+2025/10/04 21:00:55 container.go:221: setting cpu request to 10m for cgroup samir
+2025/10/04 21:00:55 container.go:239: received start signal from the parent pid [SIGNAL=1] 
+my-container:/# 
+```
 
 ## Disclaimer
 Educational / experimental.
